@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { getAllCountries } from '@/lib/all-countries'
 import { getSimpleTravelStatus, getSimpleBatchTravelStatuses } from '@/lib/simple-travel-requirements'
-import { getStatusColor } from '@/lib/travel-requirements'
+import { getStatusColor } from '@/lib/simple-travel-requirements'
 import { UserDocument, CountryInfo } from '@/lib/types'
 import { MapPin, Loader2, ChevronDown } from 'lucide-react'
 

@@ -2,6 +2,52 @@ import { supabase } from './supabase'
 import { UserDocument, TravelStatus } from './types'
 import { travelBuddyAPI } from './travel-buddy-api'
 
+// Status color mapping
+export function getStatusColor(status: TravelStatus): string {
+  switch (status) {
+    case 'visa_free':
+      return '#10b981' // green-500
+    case 'eta_required':
+      return '#3b82f6' // blue-500
+    case 'visa_on_arrival':
+    case 'evisa':
+      return '#f59e0b' // yellow-500
+    case 'reciprocity_fee':
+      return '#8b5cf6' // purple-500
+    case 'consulate_visa':
+      return '#ef4444' // red-500
+    case 'banned':
+    case 'special_permission':
+      return '#1f2937' // gray-800
+    default:
+      return '#6b7280' // gray-500
+  }
+}
+
+// Status label mapping
+export function getStatusLabel(status: TravelStatus): string {
+  switch (status) {
+    case 'visa_free':
+      return 'Visa Free'
+    case 'eta_required':
+      return 'eTA Required'
+    case 'visa_on_arrival':
+      return 'Visa on Arrival'
+    case 'evisa':
+      return 'eVisa'
+    case 'reciprocity_fee':
+      return 'Reciprocity Fee'
+    case 'consulate_visa':
+      return 'Consulate Visa Required'
+    case 'banned':
+      return 'Banned'
+    case 'special_permission':
+      return 'Special Permission Required'
+    default:
+      return 'Unknown Status'
+  }
+}
+
 // Simplified travel requirements - passports only
 export async function getSimpleTravelStatus(
   userDocuments: UserDocument[],

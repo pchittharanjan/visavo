@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { UserDocument, CountryInfo } from '@/lib/types'
 import { countries } from '@/lib/countries'
 import { formatDate, isExpired, getDaysUntilExpiry } from '@/lib/utils'
-import { getStatusLabel } from '@/lib/travel-requirements'
+import { getStatusLabel } from '@/lib/simple-travel-requirements'
 import { getDynamicRequirementsText } from '@/lib/dynamic-travel-requirements'
 import Globe from '@/components/Globe'
 import { 
