@@ -2,23 +2,34 @@ import { supabase } from './supabase'
 import { UserDocument, TravelStatus } from './types'
 import { travelBuddyAPI } from './travel-buddy-api'
 
+// Override function to fix incorrect API data
+function applyOverride(status: TravelStatus, countryCode: string): TravelStatus {
+  // Override specific countries where API data is incorrect
+  const overrides: Record<string, TravelStatus> = {
+    'IN': 'evisa',      // India: API says visa_on_arrival, but actually eVisa
+    'BR': 'evisa',      // Brazil: API says visa_on_arrival, but actually eVisa
+    // Add more overrides as needed
+  };
+  
+  return overrides[countryCode] || status;
+}
+
 // Status color mapping
 export function getStatusColor(status: TravelStatus): string {
   switch (status) {
     case 'visa_free':
       return '#10b981' // green-500
     case 'eta_required':
-      return '#3b82f6' // blue-500
+      return '#f59e0b' // yellow-500 (eTA = yellow per Travel Buddy)
     case 'visa_on_arrival':
+      return '#3b82f6' // blue-500 (visa on arrival = blue per Travel Buddy)
     case 'evisa':
-      return '#f59e0b' // yellow-500
+      return '#ef4444' // red-500 (eVisa = red)
     case 'reciprocity_fee':
       return '#8b5cf6' // purple-500
     case 'consulate_visa':
       return '#ef4444' // red-500
-    case 'banned':
-    case 'special_permission':
-      return '#1f2937' // gray-800
+
     default:
       return '#6b7280' // gray-500
   }
@@ -39,10 +50,7 @@ export function getStatusLabel(status: TravelStatus): string {
       return 'Reciprocity Fee'
     case 'consulate_visa':
       return 'Consulate Visa Required'
-    case 'banned':
-      return 'Banned'
-    case 'special_permission':
-      return 'Special Permission Required'
+
     default:
       return 'Unknown Status'
   }
@@ -81,7 +89,7 @@ export async function getSimpleTravelStatus(
       
       if (countryData) {
         const status = travelBuddyAPI.convertColorToStatus(countryData.color)
-        return status as TravelStatus
+        return applyOverride(status as TravelStatus, destinationCountry)
       }
     }
 
@@ -167,7 +175,7 @@ export async function getSimpleBatchTravelStatuses(
         }
         // Only use API data if we don't have database data
         else if (apiMapColors[countryCode]) {
-          bestStatus = apiMapColors[countryCode] as TravelStatus
+          bestStatus = applyOverride(apiMapColors[countryCode] as TravelStatus, countryCode)
         }
       }
       

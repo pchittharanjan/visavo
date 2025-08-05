@@ -184,7 +184,7 @@ export const allCountries: AllCountry[] = [
   { code: 'TO', name: 'Tonga', flag: '🇹🇴' },
   { code: 'TT', name: 'Trinidad and Tobago', flag: '🇹🇹' },
   { code: 'TN', name: 'Tunisia', flag: '🇹🇳' },
-  { code: 'TR', name: 'Turkey', flag: '🇹🇷' },
+  { code: 'TR', name: 'Türkiye', flag: '🇹🇷' },
   { code: 'TM', name: 'Turkmenistan', flag: '🇹🇲' },
   { code: 'TV', name: 'Tuvalu', flag: '🇹🇻' },
   { code: 'UG', name: 'Uganda', flag: '🇺🇬' },

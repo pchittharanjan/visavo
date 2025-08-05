@@ -101,9 +101,9 @@ class TravelBuddyAPI {
       case 'green':
         return 'visa_free'
       case 'blue':
-        return 'evisa'  // Fixed: blue should be evisa, not visa_on_arrival
+        return 'visa_on_arrival'  // Fixed: blue = visa on arrival (per Travel Buddy website)
       case 'yellow':
-        return 'visa_on_arrival'  // Fixed: yellow should be visa_on_arrival
+        return 'eta_required'     // Fixed: yellow = eTA (per Travel Buddy website)
       case 'red':
         return 'consulate_visa'
       default:
@@ -116,15 +116,13 @@ class TravelBuddyAPI {
     switch (status) {
       case 'visa_free':
         return 'green'
-      case 'evisa':
-        return 'blue'
-      case 'visa_on_arrival':
-        return 'yellow'
       case 'eta_required':
-        return 'yellow'  // eTA also maps to yellow
+        return 'yellow'  // Fixed: eTA maps to yellow
+      case 'visa_on_arrival':
+        return 'blue'    // Fixed: visa on arrival maps to blue
+      case 'evisa':
+        return 'red'     // eVisa maps to red
       case 'consulate_visa':
-      case 'banned':
-      case 'special_permission':
         return 'red'
       default:
         return 'red'

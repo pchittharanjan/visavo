@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { UserDocument, CountryInfo } from '@/lib/types'
 import { countries } from '@/lib/countries'
 import { formatDate, isExpired, getDaysUntilExpiry } from '@/lib/utils'
-import { getStatusLabel } from '@/lib/simple-travel-requirements'
+import { getStatusLabel, getStatusColor } from '@/lib/simple-travel-requirements'
 import { getDynamicRequirementsText } from '@/lib/dynamic-travel-requirements'
 import Globe from '@/components/Globe'
 import { 
@@ -104,22 +104,7 @@ export default function DashboardPage() {
     }
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'visa_free':
-        return 'bg-green-500 text-white'
-      case 'eta_required':
-        return 'bg-blue-500 text-white'
-      case 'visa_required':
-        return 'bg-yellow-500 text-white'
-      case 'consulate_visa':
-        return 'bg-red-500 text-white'
-      case 'banned':
-        return 'bg-gray-800 text-white'
-      default:
-        return 'bg-gray-500 text-white'
-    }
-  }
+
 
   if (isLoading) {
     return (
@@ -141,7 +126,7 @@ export default function DashboardPage() {
             <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-display font-bold text-lg">V</span>
             </div>
-            <h1 className="text-xl font-display font-bold text-gray-900">Visavo Visa + Voyage</h1>
+            <h1 className="text-3xl font-display font-bold text-gray-900">visavo</h1>
           </div>
           <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-600 font-body">Welcome, {user?.email?.split('@')[0] || 'User'}</span>
@@ -158,31 +143,37 @@ export default function DashboardPage() {
 
       {/* Main Content */}
       <div className="p-6">
-        <div className="grid grid-cols-12 gap-6 h-[calc(100vh-140px)]">
+        <div className="grid grid-cols-12 gap-6 min-h-[calc(100vh-140px)]">
           {/* Left Panel - Documents */}
           <div className="col-span-3">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 h-full overflow-hidden">
-              <div className="p-6 border-b border-gray-100">
-                <h2 className="text-lg font-display font-bold text-gray-900 mb-2">Your Documents</h2>
-                <p className="text-sm text-gray-600 font-body">Manage your travel documents</p>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
+              <div className="p-6 border-b border-gray-100 flex-shrink-0">
+                <h2 className="text-lg font-display font-bold text-gray-900 mb-1">Your Documents</h2>
+                <p className="text-xs text-gray-600 font-body">Manage your travel documents</p>
               </div>
               
-              <div className="p-6 overflow-y-auto h-full">
-                <button className="w-full mb-6 p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors duration-150 group">
-                  <div className="flex items-center justify-center space-x-2">
-                    <Plus className="h-5 w-5 text-gray-400 group-hover:text-blue-500" />
-                    <span className="text-gray-600 group-hover:text-blue-600 font-body font-medium">Add Document</span>
-                  </div>
+              <div className="p-4 flex-1 overflow-y-auto">
+                <button 
+                  onClick={() => router.push('/onboarding')}
+                  className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-400 hover:text-blue-600 transition-colors duration-150 mb-6 flex items-center justify-center space-x-2 font-body text-sm"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Add Document</span>
                 </button>
 
-                {userDocuments.length === 0 ? (
+                {isLoading ? (
                   <div className="text-center py-8">
-                    <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                    <h3 className="font-medium text-gray-700 mb-1 font-body">No Documents</h3>
-                    <p className="text-sm text-gray-500 font-body">Add your first travel document to get started</p>
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                    <p className="text-xs text-gray-500 mt-2 font-body">Loading documents...</p>
+                  </div>
+                ) : userDocuments.length === 0 ? (
+                  <div className="text-center py-8">
+                    <FileText className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-xs text-gray-500 font-body">No documents added yet</p>
+                    <p className="text-xs text-gray-400 font-body">Add your passport to get started</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {userDocuments.map((doc) => {
                       const country = countries.find(c => c.code === doc.issuing_country)
                       const isExpiredDoc = isExpired(new Date(doc.expiration_date))
@@ -191,37 +182,28 @@ export default function DashboardPage() {
                       return (
                         <div
                           key={doc.id}
-                          className={`p-4 border rounded-lg transition-colors duration-150 ${
+                          className={`p-3 rounded-lg border transition-colors duration-150 ${
                             isExpiredDoc 
-                              ? 'border-red-200 bg-red-50' 
-                              : daysUntilExpiry < 30
-                              ? 'border-yellow-200 bg-yellow-50'
-                              : 'border-gray-200 bg-white'
+                              ? 'bg-red-50 border-red-200' 
+                              : daysUntilExpiry < 30 
+                                ? 'bg-yellow-50 border-yellow-200'
+                                : 'bg-gray-50 border-gray-200'
                           }`}
                         >
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center space-x-3">
-                              <span className="text-xl">{country?.flag}</span>
-                              <div>
-                                <p className="font-medium text-sm text-gray-900 font-body">
-                                  {country?.name}
-                                </p>
-                                <p className="text-xs text-gray-600 font-body">
-                                  {doc.document_type.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
-                                </p>
-                              </div>
+                          <div className="flex items-start space-x-3 mb-2">
+                            <span className="text-lg mt-0.5">{country?.flag}</span>
+                            <div className="flex-1">
+                              <p className="font-medium text-xs text-gray-900 font-body">
+                                {country?.name}
+                              </p>
+                              <p className="text-xs text-gray-600 font-body">
+                                {doc.document_type.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                              </p>
                             </div>
-                            <button
-                              onClick={() => deleteDocument(doc.id.toString())}
-                              className="text-gray-400 hover:text-red-500 p-1 rounded transition-colors duration-150"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
                           </div>
-                          
-                          <div className="flex items-center space-x-2">
+                          <div className="flex items-center space-x-3">
                             <Calendar className="h-4 w-4 text-gray-400" />
-                            <span className={`text-xs font-body ${
+                            <span className={`text-xs font-body pt-[1px] ${
                               isExpiredDoc ? 'text-red-600' : 
                               daysUntilExpiry < 30 ? 'text-yellow-600' : 'text-gray-600'
                             }`}>
@@ -230,15 +212,21 @@ export default function DashboardPage() {
                               {!isExpiredDoc && daysUntilExpiry < 30 && ` (${daysUntilExpiry} days left)`}
                             </span>
                           </div>
+                          <button
+                            onClick={() => deleteDocument(doc.id.toString())}
+                            className="text-gray-400 hover:text-red-500 p-1 rounded transition-colors duration-150 absolute top-2 right-2"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
                           
                           {isExpiredDoc && (
-                            <div className="mt-3 p-2 bg-red-100 rounded text-xs text-red-700 font-body">
+                            <div className="mt-2 p-2 bg-red-100 rounded text-xs text-red-700 font-body">
                               ⚠️ Document has expired
                             </div>
                           )}
                           
                           {!isExpiredDoc && daysUntilExpiry < 30 && (
-                            <div className="mt-3 p-2 bg-yellow-100 rounded text-xs text-yellow-700 font-body">
+                            <div className="mt-2 p-2 bg-yellow-100 rounded text-xs text-yellow-700 font-body">
                               ⚠️ Expires soon
                             </div>
                           )}
@@ -253,13 +241,13 @@ export default function DashboardPage() {
 
           {/* Center Panel - Globe with more padding */}
           <div className="col-span-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 h-full overflow-hidden">
-              <div className="p-6 border-b border-gray-100">
-                <h2 className="text-lg font-display font-bold text-gray-900 mb-2">Interactive World Map</h2>
-                <p className="text-sm text-gray-600 font-body">Click on countries to see travel requirements</p>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
+              <div className="p-6 border-b border-gray-100 flex-shrink-0">
+                <h2 className="text-lg font-display font-bold text-gray-900 mb-1">Interactive World Map</h2>
+                <p className="text-xs text-gray-600 font-body">Click on countries to see travel requirements</p>
               </div>
               
-              <div className="h-full overflow-y-auto px-6">
+              <div className="flex-1 overflow-y-auto px-4">
                 <Globe 
                   userDocuments={userDocuments} 
                   onCountryClick={handleCountryClick} 
@@ -270,99 +258,77 @@ export default function DashboardPage() {
 
           {/* Right Panel - Country Details (wider) */}
           <div className="col-span-3">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 h-full overflow-hidden">
-              <div className="p-6 border-b border-gray-100">
-                <h2 className="text-lg font-display font-bold text-gray-900 mb-2">Country Details</h2>
-                <p className="text-sm text-gray-600 font-body">Travel requirements and information</p>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
+              <div className="p-6 border-b border-gray-100 flex-shrink-0">
+                <h2 className="text-lg font-display font-bold text-gray-900 mb-1">Country Details</h2>
+                <p className="text-xs text-gray-600 font-body">Travel requirements and information</p>
               </div>
               
-              <div className="p-6 overflow-y-auto h-full">
+              <div className="p-4 flex-1 overflow-y-auto">
                 {selectedCountry ? (
-                  <div className="space-y-6">
+                  <div className="space-y-4">
                     {/* Country Header */}
-                    <div className="text-center p-6 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
-                      <div className="text-5xl mb-4">{selectedCountry.flag}</div>
-                      <h3 className="text-xl font-display font-bold text-gray-900 mb-3">
+                    <div className="text-center p-4 bg-gray-50 rounded-xl border border-gray-200">
+                      <div className="text-4xl mb-3">{selectedCountry.flag}</div>
+                      <h3 className="text-lg font-display font-bold text-gray-900 mb-2">
                         {selectedCountry.name}
                       </h3>
-                      <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium font-body ${getStatusColor(selectedCountry.status)}`}>
+                      <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium font-body text-white`} style={{ backgroundColor: getStatusColor(selectedCountry.status) }}>
                         {getStatusLabel(selectedCountry.status)}
                       </div>
                     </div>
 
                     {/* Requirements */}
-                    <div className="space-y-4">
-                      <h4 className="font-display font-bold text-gray-900 text-lg border-b border-gray-200 pb-2">Entry Requirements</h4>
+                    <div className="space-y-3">
+                      <h4 className="font-display font-bold text-gray-900 text-base border-b border-gray-200 pb-2">Entry Requirements</h4>
                       
                       {selectedCountry.requirements.passportValidity && (
-                        <div className="flex items-start space-x-3 p-4 bg-green-50 rounded-lg border border-green-200">
-                          <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex items-start space-x-2 p-3 bg-green-50 rounded-lg border border-green-200">
+                          <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
                           <div>
-                            <p className="text-sm font-medium text-gray-900 font-body">Passport Validity</p>
-                            <p className="text-sm text-gray-700 font-body">{selectedCountry.requirements.passportValidity}</p>
+                            <p className="text-xs font-medium text-green-900 font-body">Passport Validity</p>
+                            <p className="text-xs text-green-700 font-body">{selectedCountry.requirements.passportValidity}</p>
                           </div>
                         </div>
                       )}
 
                       {selectedCountry.requirements.allowedStay && (
-                        <div className="flex items-start space-x-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                          <Clock className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex items-start space-x-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          <Clock className="h-4 w-4 text-gray-600 mt-0.5 flex-shrink-0" />
                           <div>
-                            <p className="text-sm font-medium text-gray-900 font-body">Allowed Stay</p>
-                            <p className="text-sm text-gray-700 font-body">{selectedCountry.requirements.allowedStay}</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {selectedCountry.requirements.visaFee && (
-                        <div className="flex items-start space-x-3 p-4 bg-emerald-50 rounded-lg border border-emerald-200">
-                          <span className="text-lg font-bold text-emerald-600 mt-0.5 flex-shrink-0">$</span>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900 font-body">Visa Fee</p>
-                            <p className="text-sm text-gray-700 font-body">{selectedCountry.requirements.visaFee}</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {selectedCountry.requirements.processingTime && (
-                        <div className="flex items-start space-x-3 p-4 bg-purple-50 rounded-lg border border-purple-200">
-                          <span className="text-lg font-bold text-purple-600 mt-0.5 flex-shrink-0">⏱</span>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900 font-body">Processing Time</p>
-                            <p className="text-sm text-gray-700 font-body">{selectedCountry.requirements.processingTime}</p>
+                            <p className="text-xs font-medium text-gray-900 font-body">Allowed Stay</p>
+                            <p className="text-xs text-gray-700 font-body">{selectedCountry.requirements.allowedStay}</p>
                           </div>
                         </div>
                       )}
 
                       {selectedCountry.requirements.notes && (
-                        <div className="flex items-start space-x-3 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                          <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex items-start space-x-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                          <MapPin className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
                           <div>
-                            <p className="text-sm font-medium text-gray-900 font-body">Important Notes</p>
-                            <p className="text-sm text-gray-700 font-body">{selectedCountry.requirements.notes}</p>
+                            <p className="text-xs font-medium text-blue-900 font-body">Additional Notes</p>
+                            <p className="text-xs text-blue-700 font-body">{selectedCountry.requirements.notes}</p>
                           </div>
                         </div>
                       )}
                     </div>
 
                     {/* Disclaimer */}
-                    <div className="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                      <div className="flex items-start space-x-3">
-                        <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <h5 className="font-medium text-yellow-800 mb-2 text-sm font-body">Important Disclaimer</h5>
-                          <p className="text-sm text-yellow-700 font-body">
-                            This information is for reference only. Always verify current requirements with official sources before travel.
-                          </p>
-                        </div>
+                    <div className="flex items-start space-x-2 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <AlertTriangle className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-medium text-yellow-900 font-body">Important Disclaimer</p>
+                        <p className="text-xs text-yellow-700 font-body">
+                          This information is for reference only. Always verify current requirements with official sources before travel.
+                        </p>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="text-center py-12 text-gray-500">
-                    <MapPin className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-                    <h3 className="font-medium text-gray-700 mb-2 font-body text-lg">Select a Country</h3>
-                    <p className="text-sm text-gray-500 font-body">Click on any country on the map to see travel requirements</p>
+                  <div className="text-center py-8">
+                    <MapPin className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-xs text-gray-500 font-body">Select a country on the map</p>
+                    <p className="text-xs text-gray-400 font-body">to see travel requirements</p>
                   </div>
                 )}
               </div>

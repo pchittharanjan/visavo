@@ -31,6 +31,8 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
   // Get visible countries
   const visibleCountries = filteredCountries.slice(0, visibleCount)
 
+
+
   useEffect(() => {
     const loadStatuses = async () => {
       setIsLoading(true)
@@ -126,30 +128,58 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
   }
 
   return (
-    <div className="w-full h-full bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 relative flex flex-col">
-      <div className="flex-1 p-6 overflow-y-auto">
-        <div className="text-center text-white mb-8">
-          <MapPin className="h-16 w-16 mx-auto mb-4 text-blue-300" />
-          <h3 className="text-2xl font-display font-bold mb-3">Interactive World Map</h3>
-          <p className="text-blue-200 mb-6 font-body">Click on countries to see travel requirements</p>
-          
+    <div className="w-full h-full relative flex flex-col">
+      <div className="flex-1 p-4 overflow-y-auto">
+        <div className="text-center text-gray-900 mb-6">
           {/* Search Bar */}
-          <div className="mb-6">
+          <div className="mb-4">
             <input
               type="text"
               placeholder="Search countries..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="px-6 py-3 rounded-xl bg-white/10 text-white placeholder-white/60 border border-white/20 focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-300/20 w-80 font-body"
+              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-900 placeholder-gray-500 border border-gray-300 focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-300/20 w-64 font-body text-sm"
             />
           </div>
         </div>
 
+        {/* Legend - Subtle Top Banner */}
+        <div className="bg-gray-100 rounded-lg p-2 text-xs text-gray-900 border border-gray-200 mb-4 max-w-4xl mx-auto">
+          <div className="flex items-center justify-center space-x-4">
+            <span className="font-body text-xs font-medium">Travel Status:</span>
+            <div className="flex items-center space-x-1">
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#10b981' }}></div>
+              <span className="font-body text-xs">Visa Free</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#f59e0b' }}></div>
+              <span className="font-body text-xs">eTA</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#3b82f6' }}></div>
+              <span className="font-body text-xs">VoA</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#ef4444' }}></div>
+              <span className="font-body text-xs">eVisa or Consulate Visa</span>
+            </div>
+
+          </div>
+        </div>
+
         {/* Country Grid */}
-        <div className="grid grid-cols-8 md:grid-cols-10 lg:grid-cols-12 xl:grid-cols-16 gap-3 max-w-7xl mx-auto mb-8">
-          {visibleCountries.map((country) => {
+        <div className="grid grid-cols-8 md:grid-cols-10 lg:grid-cols-12 xl:grid-cols-16 gap-2 max-w-6xl mx-auto mb-6 relative">
+          {visibleCountries.map((country, index) => {
             const status = countryStatuses[country.code] || 'consulate_visa'
             const color = getStatusColor(status as any)
+            
+            // Calculate position for smart tooltip positioning
+            const row = Math.floor(index / 16) // Assuming 16 columns max
+            const col = index % 16
+            const isFirstRow = row === 0
+            const isLastRow = row >= Math.floor(visibleCountries.length / 16) - 1
+            const isFirstCol = col === 0
+            const isLastCol = col >= 15 || index === visibleCountries.length - 1
             
             return (
               <button
@@ -158,7 +188,7 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
                 onMouseEnter={() => setHoveredCountry(country.code)}
                 onMouseLeave={() => setHoveredCountry(null)}
                 className={`
-                  p-3 rounded-lg text-xs font-medium transition-all duration-200 relative
+                  p-2 rounded-md text-xs font-medium transition-all duration-200 relative
                   ${hoveredCountry === country.code 
                     ? 'ring-2 ring-white/50 scale-105' 
                     : 'hover:ring-1 hover:ring-white/30 hover:scale-102'
@@ -166,10 +196,14 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
                 `}
                 style={{ backgroundColor: color }}
               >
-                <div className="text-base mb-1">{country.flag}</div>
+                <div className="text-sm mb-1">{country.flag}</div>
                 <div className="text-white font-bold text-xs font-body">{country.code}</div>
                 {hoveredCountry === country.code && (
-                  <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-black/90 text-white text-xs px-3 py-2 rounded-lg whitespace-nowrap z-20 font-body">
+                  <div className={`absolute bg-black/90 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50 font-body -top-8 ${
+                    isFirstCol ? 'left-0' :
+                    isLastCol ? 'right-0' :
+                    'left-1/2 transform -translate-x-1/2'
+                  }`}>
                     {country.name}
                   </div>
                 )}
@@ -179,46 +213,21 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
         </div>
 
         {/* Show More Section */}
-        <div className="text-center mb-24">
-          <p className="text-sm text-blue-300 mb-3 font-body">
+        <div className="text-center mb-16">
+          <p className="text-xs text-gray-600 mb-2 font-body">
             Showing {visibleCountries.length} of {filteredCountries.length} countries
           </p>
           {visibleCount < filteredCountries.length && (
             <button 
               onClick={() => setVisibleCount(prev => Math.min(prev + 50, filteredCountries.length))}
-              className="text-blue-300 hover:text-white underline text-sm font-body hover:no-underline transition-colors duration-150"
+              className="text-blue-600 hover:text-blue-800 underline text-xs font-body hover:no-underline transition-colors duration-150"
             >
               Show More Countries
             </button>
           )}
         </div>
 
-        {/* Legend - Positioned to avoid overlap with right panel */}
-        <div className="absolute bottom-6 left-6 bg-black/90 rounded-xl p-4 text-xs text-white border border-white/20 shadow-xl z-10 max-w-52">
-          <h4 className="font-display font-bold text-sm mb-3 text-center">Travel Status</h4>
-          <div className="space-y-2">
-            <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#10b981' }}></div>
-              <span className="font-body">Visa Free</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#3b82f6' }}></div>
-              <span className="font-body">eTA Required</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#f59e0b' }}></div>
-              <span className="font-body">Visa Required</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#ef4444' }}></div>
-              <span className="font-body">Consulate Visa Required</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#1f2937' }}></div>
-              <span className="font-body">Banned / Special Permission</span>
-            </div>
-          </div>
-        </div>
+
       </div>
     </div>
   )
