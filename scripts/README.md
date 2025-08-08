@@ -56,7 +56,7 @@ This directory contains SQL scripts to set up a comprehensive visa requirements 
 - **Special Overrides**: Handles complex cases like OCI cards for India
 
 ### ✅ **Comprehensive Data**:
-- **Visa Status**: visa_free, eta_required, visa_on_arrival, evisa, reciprocity_fee, consulate_visa
+- **Visa Status**: visa_free, eta_required, visa_on_arrival, evisa, consulate_visa
 - **Stay Duration**: Number of days allowed
 - **Visa Fees**: Amount and currency
 - **Processing Time**: How long applications take

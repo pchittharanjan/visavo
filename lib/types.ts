@@ -5,8 +5,8 @@ export type TravelStatus =
   | 'eta_required'
   | 'visa_on_arrival'
   | 'evisa'
-  | 'reciprocity_fee'
   | 'consulate_visa'
+  | 'citizen'
   | 'banned'
   | 'special_permission'
 
@@ -57,5 +57,12 @@ export interface CountryInfo {
     notes?: string
     visaFee?: string
     processingTime?: string
+    passportUsed?: string
+    passportReason?: string
+    allPassportOptions?: Array<{
+      passport: string
+      status: TravelStatus
+      requirements?: any
+    }>
   }
 } 

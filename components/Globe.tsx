@@ -1,26 +1,83 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { getAllCountries } from '@/lib/all-countries'
-import { getSimpleTravelStatus, getSimpleBatchTravelStatuses } from '@/lib/simple-travel-requirements'
-import { getStatusColor } from '@/lib/simple-travel-requirements'
+import { useState, useEffect, useRef } from 'react'
+import { getAllCountries } from '@/lib/countries'
+import { getSimpleTravelStatus, getSimpleBatchTravelStatuses, getDynamicStatusColor, loadStatusTypes, clearStatusTypesCache, forceRefreshStatusTypes } from '@/lib/dynamic-travel-requirements'
+import { getOptimizedBatchStatuses } from '@/lib/optimized-database'
 import { UserDocument, CountryInfo } from '@/lib/types'
 import { MapPin, Loader2, ChevronDown } from 'lucide-react'
 
 interface GlobeProps {
   userDocuments: UserDocument[]
   onCountryClick: (countryInfo: CountryInfo) => void
+  selectedCountry: CountryInfo | null
 }
 
-export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
+export default function Globe({ userDocuments, onCountryClick, selectedCountry }: GlobeProps) {
   const [hoveredCountry, setHoveredCountry] = useState<string | null>(null)
   const [countryStatuses, setCountryStatuses] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [loadingProgress, setLoadingProgress] = useState(0)
   const [visibleCount, setVisibleCount] = useState(75) // Start with 75 countries
   const [searchTerm, setSearchTerm] = useState('')
+  const [allCountries, setAllCountries] = useState<any[]>([])
+  const [countriesLoading, setCountriesLoading] = useState(true)
+  const [colorCache, setColorCache] = useState<Record<string, string>>({})
+  const [colorsLoaded, setColorsLoaded] = useState(false)
+  const [statusTypes, setStatusTypes] = useState<any[]>([])
+  // Load countries from database
+  useEffect(() => {
+    const loadCountries = async () => {
+      try {
+        const countries = await getAllCountries()
+        setAllCountries(countries)
+        console.log('🌍 Loaded countries from database:', countries.length)
+      } catch (error) {
+        console.error('Error loading countries:', error)
+        setAllCountries([])
+      } finally {
+        setCountriesLoading(false)
+      }
+    }
+    
+    loadCountries()
+  }, [])
 
-  const allCountries = getAllCountries()
+  // Load colors from database
+  useEffect(() => {
+    const loadColors = async () => {
+      try {
+        console.log('🎨 Starting to load colors from database...')
+        
+        // Force refresh to get latest data including new status types
+        const statusTypes = await forceRefreshStatusTypes()
+        console.log('🎨 Loaded status types:', statusTypes)
+        
+        const colorMap: Record<string, string> = {}
+        statusTypes.forEach(st => {
+          colorMap[st.code] = st.color
+        })
+        
+        console.log('🎨 Status types for legend:', statusTypes)
+        setStatusTypes(statusTypes)
+        setColorCache(colorMap)
+        setColorsLoaded(true)
+        console.log('🎨 Final color cache:', colorMap)
+        
+        // Test: Check if eVisa color is correct
+        if (colorMap['evisa'] === '#f59e0b') {
+          console.log('✅ eVisa color is correct (yellow)')
+        } else {
+          console.log('❌ eVisa color is wrong:', colorMap['evisa'])
+        }
+      } catch (error) {
+        console.error('Error loading colors:', error)
+        setColorsLoaded(true) // Still mark as loaded to avoid infinite loading
+      }
+    }
+    
+    loadColors()
+  }, [])
   
   // Filter countries based on search term
   const filteredCountries = allCountries.filter(country => 
@@ -31,10 +88,10 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
   // Get visible countries
   const visibleCountries = filteredCountries.slice(0, visibleCount)
 
-
-
   useEffect(() => {
     const loadStatuses = async () => {
+      if (allCountries.length === 0) return // Wait for countries to load
+      
       setIsLoading(true)
       setLoadingProgress(0)
       
@@ -42,7 +99,7 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
         // Use batch function for better performance
         const countryCodes = allCountries.map(c => c.code)
         console.log('🔍 Loading batch statuses for countries:', countryCodes)
-        const statuses = await getSimpleBatchTravelStatuses(userDocuments, countryCodes)
+        const statuses = await getOptimizedBatchStatuses(userDocuments, countryCodes)
         console.log('📊 Batch statuses returned:', statuses)
         setCountryStatuses(statuses)
         setLoadingProgress(100)
@@ -70,7 +127,7 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
     }
     
     loadStatuses()
-  }, [userDocuments])
+  }, [userDocuments, allCountries])
 
   const handleCountryClick = async (countryCode: string) => {
     const country = allCountries.find(c => c.code === countryCode)
@@ -108,13 +165,17 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
     }
   }
 
-  if (isLoading) {
+  if (countriesLoading || isLoading || !colorsLoaded) {
     return (
       <div className="w-full h-full bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 flex items-center justify-center">
         <div className="text-center text-white">
           <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin text-blue-300" />
-          <h3 className="text-xl font-display font-bold mb-2">Loading World Map</h3>
-          <p className="text-blue-200 mb-4">Preparing travel requirements...</p>
+          <h3 className="text-xl font-display font-bold mb-2">
+            {countriesLoading ? 'Loading Countries' : colorsLoaded ? 'Loading World Map' : 'Loading Colors'}
+          </h3>
+          <p className="text-blue-200 mb-4">
+            {countriesLoading ? 'Fetching country data from database...' : colorsLoaded ? 'Preparing travel requirements...' : 'Loading color scheme...'}
+          </p>
           <div className="w-64 bg-blue-800 rounded-full h-2 mx-auto">
             <div 
               className="bg-blue-300 h-2 rounded-full transition-all duration-300"
@@ -138,7 +199,7 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
               placeholder="Search countries..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-900 placeholder-gray-500 border border-gray-300 focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-300/20 w-64 font-body text-sm"
+              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-900 placeholder-gray-800 border border-gray-300 focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-300/20 w-64 font-body text-sm"
             />
           </div>
         </div>
@@ -147,23 +208,12 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
         <div className="bg-gray-100 rounded-lg p-2 text-xs text-gray-900 border border-gray-200 mb-4 max-w-4xl mx-auto">
           <div className="flex items-center justify-center space-x-4">
             <span className="font-body text-xs font-medium">Travel Status:</span>
-            <div className="flex items-center space-x-1">
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#10b981' }}></div>
-              <span className="font-body text-xs">Visa Free</span>
-            </div>
-            <div className="flex items-center space-x-1">
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#f59e0b' }}></div>
-              <span className="font-body text-xs">eTA</span>
-            </div>
-            <div className="flex items-center space-x-1">
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#3b82f6' }}></div>
-              <span className="font-body text-xs">VoA</span>
-            </div>
-            <div className="flex items-center space-x-1">
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#ef4444' }}></div>
-              <span className="font-body text-xs">eVisa or Consulate Visa</span>
-            </div>
-
+            {statusTypes.map((statusType) => (
+              <div key={statusType.code} className="flex items-center space-x-1">
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusType.color }}></div>
+                <span className="font-body text-xs">{statusType.name}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -171,15 +221,9 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
         <div className="grid grid-cols-8 md:grid-cols-10 lg:grid-cols-12 xl:grid-cols-16 gap-2 max-w-6xl mx-auto mb-6 relative">
           {visibleCountries.map((country, index) => {
             const status = countryStatuses[country.code] || 'consulate_visa'
-            const color = getStatusColor(status as any)
+            const color = colorCache[status] || '#6b7280' // Use color cache with gray fallback
             
-            // Calculate position for smart tooltip positioning
-            const row = Math.floor(index / 16) // Assuming 16 columns max
-            const col = index % 16
-            const isFirstRow = row === 0
-            const isLastRow = row >= Math.floor(visibleCountries.length / 16) - 1
-            const isFirstCol = col === 0
-            const isLastCol = col >= 15 || index === visibleCountries.length - 1
+
             
             return (
               <button
@@ -188,10 +232,14 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
                 onMouseEnter={() => setHoveredCountry(country.code)}
                 onMouseLeave={() => setHoveredCountry(null)}
                 className={`
-                  p-2 rounded-md text-xs font-medium transition-all duration-200 relative
+                  flex flex-col items-center justify-center p-2 rounded-md text-xs font-medium transition-all duration-200 relative
                   ${hoveredCountry === country.code 
-                    ? 'ring-2 ring-white/50 scale-105' 
-                    : 'hover:ring-1 hover:ring-white/30 hover:scale-102'
+                    ? 'ring-2 ring-white/50' 
+                    : 'hover:ring-1 hover:ring-white/30'
+                  }
+                  ${selectedCountry?.code === country.code 
+                    ? 'brightness-75' 
+                    : ''
                   }
                 `}
                 style={{ backgroundColor: color }}
@@ -199,11 +247,17 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
                 <div className="text-sm mb-1">{country.flag}</div>
                 <div className="text-white font-bold text-xs font-body">{country.code}</div>
                 {hoveredCountry === country.code && (
-                  <div className={`absolute bg-black/90 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50 font-body -top-8 ${
-                    isFirstCol ? 'left-0' :
-                    isLastCol ? 'right-0' :
-                    'left-1/2 transform -translate-x-1/2'
-                  }`}>
+                  <div 
+                    className={`
+                      absolute bg-black/90 text-white px-2 py-1 rounded z-50 font-body -top-8
+                      ${index % 16 === 0 ? 'left-1' : 
+                        index % 16 === 15 || index === visibleCountries.length - 1 ? 'right-1' : 
+                        'left-1/2 transform -translate-x-1/2'}
+                    `}
+                    style={{ 
+                      whiteSpace: 'normal'
+                    }}
+                  >
                     {country.name}
                   </div>
                 )}
@@ -214,7 +268,7 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
 
         {/* Show More Section */}
         <div className="text-center mb-16">
-          <p className="text-xs text-gray-600 mb-2 font-body">
+          <p className="text-xs text-gray-700 mb-2 font-body">
             Showing {visibleCountries.length} of {filteredCountries.length} countries
           </p>
           {visibleCount < filteredCountries.length && (
@@ -226,9 +280,7 @@ export default function Globe({ userDocuments, onCountryClick }: GlobeProps) {
             </button>
           )}
         </div>
-
-
       </div>
     </div>
   )
-} 
+}

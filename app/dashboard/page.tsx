@@ -3,17 +3,23 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { UserDocument, CountryInfo } from '@/lib/types'
-import { countries } from '@/lib/countries'
+import { UserDocument, CountryInfo, TravelStatus } from '@/lib/types'
+import { getCountries } from '@/lib/countries'
 import { formatDate, isExpired, getDaysUntilExpiry } from '@/lib/utils'
-import { getStatusLabel, getStatusColor } from '@/lib/simple-travel-requirements'
-import { getDynamicRequirementsText } from '@/lib/dynamic-travel-requirements'
+import { 
+  getDynamicStatusLabel, 
+  getDynamicStatusColor, 
+  getDynamicRequirementsText 
+} from '@/lib/dynamic-travel-requirements'
+import { getBestPassportForDestination } from '@/lib/best-passport-selector'
 import Globe from '@/components/Globe'
+import DocumentCard from '@/components/DocumentCard'
+import PerformanceMonitor from '@/components/PerformanceMonitor'
+
+import DualCitizenshipIndicator from '@/components/DualCitizenshipIndicator'
 import { 
   LogOut, 
   Plus, 
-  X, 
-  Calendar, 
   AlertTriangle, 
   CheckCircle, 
   Clock,
@@ -26,6 +32,9 @@ export default function DashboardPage() {
   const [selectedCountry, setSelectedCountry] = useState<CountryInfo | null>(null)
   const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [statusColor, setStatusColor] = useState<string>('#6b7280')
+  const [statusLabel, setStatusLabel] = useState<string>('Unknown Status')
+
   const router = useRouter()
 
   useEffect(() => {
@@ -70,13 +79,66 @@ export default function DashboardPage() {
     router.push('/login')
   }
 
-  const handleCountryClick = async (countryInfo: CountryInfo) => {
+  const handleCountryClick = async (countryInfo: CountryInfo, selectedPassport?: string) => {
     try {
-      const requirements = await getDynamicRequirementsText(countryInfo.status, countryInfo.code, userDocuments)
+      // Get user's passports
+      const passports = userDocuments.filter(doc => doc.document_type === 'passport')
+      
+      if (passports.length === 0) {
+        // No passports - use default
+        const requirements = await getDynamicRequirementsText(countryInfo.status, countryInfo.code, 'US')
+        const color = await getDynamicStatusColor(countryInfo.status)
+        const label = await getDynamicStatusLabel(countryInfo.status)
+        
+        setSelectedCountry({
+          ...countryInfo,
+          requirements
+        })
+        setStatusColor(color)
+        setStatusLabel(label)
+        return
+      }
+
+      // If a specific passport was selected, use it; otherwise get best passport
+      let passportToUse: string
+      let passportReason: string
+      let allOptions: any[] = []
+      let passportSpecificStatus: TravelStatus
+
+      if (selectedPassport) {
+        // Use the selected passport
+        passportToUse = selectedPassport
+        passportReason = `Manually selected ${selectedPassport} passport`
+        
+        // Get all options for comparison
+        const bestPassport = await getBestPassportForDestination(passports, countryInfo.code)
+        allOptions = bestPassport.allOptions || []
+        passportSpecificStatus = bestPassport.status
+      } else {
+        // Get best passport for this destination
+        const bestPassport = await getBestPassportForDestination(passports, countryInfo.code)
+        passportToUse = bestPassport.passport
+        passportReason = bestPassport.reason
+        allOptions = bestPassport.allOptions || []
+        passportSpecificStatus = bestPassport.status
+      }
+      
+      const requirements = await getDynamicRequirementsText(passportSpecificStatus, countryInfo.code, passportToUse)
+      const color = await getDynamicStatusColor(passportSpecificStatus)
+      const label = await getDynamicStatusLabel(passportSpecificStatus)
+      
       setSelectedCountry({
         ...countryInfo,
-        requirements
+        status: passportSpecificStatus, // Update the status to match passport
+        requirements: {
+          ...requirements,
+          passportUsed: passportToUse,
+          passportReason: passportReason,
+          allPassportOptions: allOptions
+        }
       })
+      setStatusColor(color)
+      setStatusLabel(label)
     } catch (error) {
       console.error('Error getting requirements:', error)
       // Fallback to empty requirements
@@ -84,6 +146,13 @@ export default function DashboardPage() {
         ...countryInfo,
         requirements: {}
       })
+    }
+  }
+
+  const handlePassportSelect = async (passport: string) => {
+    if (selectedCountry) {
+      // Re-fetch requirements with the selected passport
+      await handleCountryClick(selectedCountry, passport)
     }
   }
 
@@ -123,9 +192,6 @@ export default function DashboardPage() {
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-display font-bold text-lg">V</span>
-            </div>
             <h1 className="text-3xl font-display font-bold text-gray-900">visavo</h1>
           </div>
           <div className="flex items-center space-x-4">
@@ -152,6 +218,12 @@ export default function DashboardPage() {
                 <p className="text-xs text-gray-600 font-body">Manage your travel documents</p>
               </div>
               
+              {userDocuments.filter(doc => doc.document_type === 'passport').length > 1 && (
+                <div className="p-4 pt-4">
+                  <DualCitizenshipIndicator userDocuments={userDocuments} />
+                </div>
+              )}
+              
               <div className="p-4 flex-1 overflow-y-auto">
                 <button 
                   onClick={() => router.push('/onboarding')}
@@ -164,75 +236,23 @@ export default function DashboardPage() {
                 {isLoading ? (
                   <div className="text-center py-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                    <p className="text-xs text-gray-500 mt-2 font-body">Loading documents...</p>
+                    <p className="text-xs text-gray-700 mt-2 font-body">Loading documents...</p>
                   </div>
                 ) : userDocuments.length === 0 ? (
                   <div className="text-center py-8">
-                    <FileText className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                    <p className="text-xs text-gray-500 font-body">No documents added yet</p>
-                    <p className="text-xs text-gray-400 font-body">Add your passport to get started</p>
+                                      <FileText className="h-8 w-8 text-gray-600 mx-auto mb-2" />
+                  <p className="text-xs text-gray-700 font-body">No documents added yet</p>
+                  <p className="text-xs text-gray-600 font-body">Add your passport to get started</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {userDocuments.map((doc) => {
-                      const country = countries.find(c => c.code === doc.issuing_country)
-                      const isExpiredDoc = isExpired(new Date(doc.expiration_date))
-                      const daysUntilExpiry = getDaysUntilExpiry(new Date(doc.expiration_date))
-                      
-                      return (
-                        <div
-                          key={doc.id}
-                          className={`p-3 rounded-lg border transition-colors duration-150 ${
-                            isExpiredDoc 
-                              ? 'bg-red-50 border-red-200' 
-                              : daysUntilExpiry < 30 
-                                ? 'bg-yellow-50 border-yellow-200'
-                                : 'bg-gray-50 border-gray-200'
-                          }`}
-                        >
-                          <div className="flex items-start space-x-3 mb-2">
-                            <span className="text-lg mt-0.5">{country?.flag}</span>
-                            <div className="flex-1">
-                              <p className="font-medium text-xs text-gray-900 font-body">
-                                {country?.name}
-                              </p>
-                              <p className="text-xs text-gray-600 font-body">
-                                {doc.document_type.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-3">
-                            <Calendar className="h-4 w-4 text-gray-400" />
-                            <span className={`text-xs font-body pt-[1px] ${
-                              isExpiredDoc ? 'text-red-600' : 
-                              daysUntilExpiry < 30 ? 'text-yellow-600' : 'text-gray-600'
-                            }`}>
-                              {formatDate(new Date(doc.expiration_date))}
-                              {isExpiredDoc && " (Expired)"}
-                              {!isExpiredDoc && daysUntilExpiry < 30 && ` (${daysUntilExpiry} days left)`}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => deleteDocument(doc.id.toString())}
-                            className="text-gray-400 hover:text-red-500 p-1 rounded transition-colors duration-150 absolute top-2 right-2"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                          
-                          {isExpiredDoc && (
-                            <div className="mt-2 p-2 bg-red-100 rounded text-xs text-red-700 font-body">
-                              ⚠️ Document has expired
-                            </div>
-                          )}
-                          
-                          {!isExpiredDoc && daysUntilExpiry < 30 && (
-                            <div className="mt-2 p-2 bg-yellow-100 rounded text-xs text-yellow-700 font-body">
-                              ⚠️ Expires soon
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
+                    {userDocuments.map((doc) => (
+                      <DocumentCard
+                        key={doc.id}
+                        document={doc}
+                        onDelete={deleteDocument}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
@@ -250,7 +270,8 @@ export default function DashboardPage() {
               <div className="flex-1 overflow-y-auto px-4">
                 <Globe 
                   userDocuments={userDocuments} 
-                  onCountryClick={handleCountryClick} 
+                  onCountryClick={handleCountryClick}
+                  selectedCountry={selectedCountry}
                 />
               </div>
             </div>
@@ -273,10 +294,33 @@ export default function DashboardPage() {
                       <h3 className="text-lg font-display font-bold text-gray-900 mb-2">
                         {selectedCountry.name}
                       </h3>
-                      <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium font-body text-white`} style={{ backgroundColor: getStatusColor(selectedCountry.status) }}>
-                        {getStatusLabel(selectedCountry.status)}
+                      <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium font-body text-white`} style={{ backgroundColor: statusColor }}>
+                        {statusLabel}
                       </div>
                     </div>
+
+                    {/* Passport Selection Info */}
+                    {selectedCountry.requirements.passportUsed && (
+                      <div className="flex items-start space-x-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <FileText className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="text-xs font-medium text-blue-900 font-body">Best Document</p>
+                          <p className="text-xs text-blue-700 font-body">
+                            {selectedCountry.requirements.allPassportOptions && 
+                             selectedCountry.requirements.allPassportOptions.length > 1 ? 
+                             // Show all passports that work equally well
+                             selectedCountry.requirements.allPassportOptions
+                               .filter(option => option.status === selectedCountry.status)
+                               .map(option => `${option.passport} Passport`)
+                               .join(', ')
+                             :
+                             // Show single passport
+                             `${selectedCountry.requirements.passportUsed} Passport`
+                            }
+                          </p>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Requirements */}
                     <div className="space-y-3">
@@ -326,9 +370,9 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   <div className="text-center py-8">
-                    <MapPin className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                    <p className="text-xs text-gray-500 font-body">Select a country on the map</p>
-                    <p className="text-xs text-gray-400 font-body">to see travel requirements</p>
+                    <MapPin className="h-8 w-8 text-gray-600 mx-auto mb-2" />
+                    <p className="text-xs text-gray-700 font-body">Select a country on the map</p>
+                    <p className="text-xs text-gray-600 font-body">to see travel requirements</p>
                   </div>
                 )}
               </div>
@@ -336,6 +380,11 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+      <PerformanceMonitor />
+      
+
+
+
     </div>
   )
 } 

@@ -23,13 +23,92 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Custom font utilities */
 .font-display {
   font-family: var(--font-gruppo), var(--font-inter), Arial, Helvetica, sans-serif;
+  font-weight: 800;
+  letter-spacing: 0.02em;
 }
 
 .font-body {
   font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+}
+
+/* Enhanced button and interactive element styling */
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Force dark text for select elements */
+select {
+  color: #1f2937 !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  background-size: 16px !important;
+  padding-right: 40px !important;
+}
+
+select option {
+  color: #1f2937 !important;
+}
+
+/* Force dark placeholder text */
+input::placeholder {
+  color: #1f2937 !important;
+}
+
+/* Force dark placeholder text for number inputs specifically */
+input[type="number"]::placeholder {
+  color: #1f2937 !important;
+  opacity: 1 !important;
+}
+
+/* Additional specificity for number inputs */
+input[type="number"]::-webkit-input-placeholder {
+  color: #1f2937 !important;
+  opacity: 1 !important;
+}
+
+input[type="number"]::-moz-placeholder {
+  color: #1f2937 !important;
+  opacity: 1 !important;
+}
+
+/* Enhanced card styling */
+.card {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Smooth transitions for all interactive elements */
+* {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Custom scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }

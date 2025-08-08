@@ -25,7 +25,7 @@ CREATE TABLE visa_requirements (
   destination_country VARCHAR(2) REFERENCES countries(code),
   status VARCHAR(20) NOT NULL, -- 'visa_free', 'eta_required', 'evisa', etc.
   passport_validity_months INTEGER DEFAULT 6,
-  allowed_stay_days INTEGER,
+  allowed_stay_days TEXT,
   visa_fee_amount DECIMAL(10,2),
   visa_fee_currency VARCHAR(3) DEFAULT 'USD',
   processing_time_days INTEGER,

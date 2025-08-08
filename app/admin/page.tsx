@@ -1,63 +1,69 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
-import { TravelStatus } from '@/lib/types'
-import { getCountriesFromDB, getVisaRequirementsForPassport } from '@/lib/dynamic-travel-requirements'
-import { Plus, Edit, Trash2, Save, X } from 'lucide-react'
+import { createClient } from '@supabase/supabase-js'
+import { getAllCountries } from '@/lib/countries'
+import { Country } from '@/lib/types'
 
-interface Country {
-  code: string
-  name: string
-  flag: string
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 interface VisaRequirement {
-  id: number
+  id?: number
   passport_country: string
   destination_country: string
-  status: TravelStatus
-  allowed_stay_days: number
+  status: string
+  allowed_stay_days: string
   visa_fee_amount: number
   visa_fee_currency: string
-  processing_time_days: number
   notes: string
-  destination_country_info?: {
-    code: string
-    name: string
-    flag: string
-  }
+  is_active: boolean
+}
+
+interface VisaStatusType {
+  id: number
+  code: string
+  name: string
+  description: string
+  color: string
+  is_active: boolean
 }
 
 export default function AdminPage() {
-  const [countries, setCountries] = useState<Country[]>([])
   const [requirements, setRequirements] = useState<VisaRequirement[]>([])
-  const [selectedPassportCountry, setSelectedPassportCountry] = useState('US')
-  const [isLoading, setIsLoading] = useState(true)
+  const [statusTypes, setStatusTypes] = useState<VisaStatusType[]>([])
+  const [allCountries, setAllCountries] = useState<Country[]>([])
   const [editingRequirement, setEditingRequirement] = useState<VisaRequirement | null>(null)
-  const [newRequirement, setNewRequirement] = useState({
-    destination_country: '',
-    status: 'visa_free' as TravelStatus,
-    allowed_stay_days: 90,
-    visa_fee_amount: 0,
-    visa_fee_currency: 'USD',
-    processing_time_days: 0,
-    notes: ''
-  })
-
-  useEffect(() => {
-    loadData()
-  }, [selectedPassportCountry])
+  const [isLoading, setIsLoading] = useState(true)
 
   const loadData = async () => {
     setIsLoading(true)
     try {
-      const [countriesData, requirementsData] = await Promise.all([
-        getCountriesFromDB(),
-        getVisaRequirementsForPassport(selectedPassportCountry)
-      ])
-      setCountries(countriesData)
-      setRequirements(requirementsData)
+      // Load visa requirements
+      const { data: requirementsData, error: requirementsError } = await supabase
+        .from('visa_requirements')
+        .select('*')
+        .eq('passport_country', 'US')
+
+      if (requirementsError) throw requirementsError
+
+      // Load visa status types
+      const { data: statusTypesData, error: statusTypesError } = await supabase
+        .from('visa_status_types')
+        .select('*')
+        .eq('is_active', true)
+        .order('id')
+
+      if (statusTypesError) throw statusTypesError
+
+      // Load countries
+      const countriesData = await getAllCountries()
+
+      setRequirements(requirementsData || [])
+      setStatusTypes(statusTypesData || [])
+      setAllCountries(countriesData)
     } catch (error) {
       console.error('Error loading data:', error)
     } finally {
@@ -65,253 +71,257 @@ export default function AdminPage() {
     }
   }
 
+  useEffect(() => {
+    loadData()
+  }, [])
+
   const handleSaveRequirement = async (requirement: VisaRequirement) => {
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('visa_requirements')
-        .update({
-          status: requirement.status,
-          allowed_stay_days: requirement.allowed_stay_days,
-          visa_fee_amount: requirement.visa_fee_amount,
-          visa_fee_currency: requirement.visa_fee_currency,
-          processing_time_days: requirement.processing_time_days,
-          notes: requirement.notes,
-          last_updated: new Date().toISOString()
-        })
-        .eq('id', requirement.id)
+        .upsert(requirement)
+        .select()
 
       if (error) throw error
-      
+
+      await loadData()
       setEditingRequirement(null)
-      loadData()
     } catch (error) {
       console.error('Error saving requirement:', error)
+      alert('Failed to save requirement')
     }
   }
 
-  const handleAddRequirement = async () => {
+  const handleDeleteRequirement = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this requirement?')) return
+
     try {
       const { error } = await supabase
         .from('visa_requirements')
-        .insert({
-          passport_country: selectedPassportCountry,
-          destination_country: newRequirement.destination_country,
-          status: newRequirement.status,
-          allowed_stay_days: newRequirement.allowed_stay_days,
-          visa_fee_amount: newRequirement.visa_fee_amount,
-          visa_fee_currency: newRequirement.visa_fee_currency,
-          processing_time_days: newRequirement.processing_time_days,
-          notes: newRequirement.notes
-        })
+        .delete()
+        .eq('id', id)
 
       if (error) throw error
-      
-      setNewRequirement({
-        destination_country: '',
+
+      await loadData()
+    } catch (error) {
+      console.error('Error deleting requirement:', error)
+      alert('Failed to delete requirement')
+    }
+  }
+
+  const handleEditClick = (country: any, requirement?: VisaRequirement) => {
+    if (requirement) {
+      setEditingRequirement(requirement)
+    } else {
+      setEditingRequirement({
+        passport_country: 'US',
+        destination_country: country.code,
         status: 'visa_free',
-        allowed_stay_days: 90,
+        allowed_stay_days: '90 days',
         visa_fee_amount: 0,
         visa_fee_currency: 'USD',
-        processing_time_days: 0,
-        notes: ''
+        notes: '',
+        is_active: true
       })
-      loadData()
-    } catch (error) {
-      console.error('Error adding requirement:', error)
     }
   }
 
-  const getStatusColor = (status: TravelStatus) => {
-    switch (status) {
-      case 'visa_free': return 'bg-green-100 text-green-800'
-      case 'eta_required': return 'bg-blue-100 text-blue-800'
-      case 'visa_on_arrival': return 'bg-yellow-100 text-yellow-800'
-      case 'evisa': return 'bg-yellow-100 text-yellow-800'
-      case 'reciprocity_fee': return 'bg-purple-100 text-purple-800'
-      case 'consulate_visa': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
-    }
+  // Database-driven color mapping
+  const getStatusColor = (status: string): string => {
+    const statusType = statusTypes.find(st => st.code === status)
+    return statusType?.color || '#6b7280' // Use database color or default gray
   }
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading admin panel...</p>
-        </div>
-      </div>
-    )
+  const getStatusLabel = (status: string): string => {
+    const statusType = statusTypes.find(st => st.code === status)
+    return statusType ? statusType.name : status
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 font-body">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Visa Requirements Admin</h1>
-          <p className="mt-2 text-gray-600">Manage visa requirements for different passport holders</p>
+          <h1 className="text-3xl font-bold text-gray-900 font-display">Admin Console</h1>
+          <p className="text-gray-600 mt-2">Manage visa requirements for US passport holders</p>
         </div>
 
-        {/* Passport Country Selector */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Passport Country
-          </label>
-          <select
-            value={selectedPassportCountry}
-            onChange={(e) => setSelectedPassportCountry(e.target.value)}
-            className="block w-full max-w-xs px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-          >
-            {countries.map(country => (
-              <option key={country.code} value={country.code}>
-                {country.flag} {country.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Add New Requirement */}
-        <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Add New Requirement</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Destination</label>
-              <select
-                value={newRequirement.destination_country}
-                onChange={(e) => setNewRequirement({...newRequirement, destination_country: e.target.value})}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Select country</option>
-                {countries.map(country => (
-                  <option key={country.code} value={country.code}>
-                    {country.flag} {country.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-              <select
-                value={newRequirement.status}
-                onChange={(e) => setNewRequirement({...newRequirement, status: e.target.value as TravelStatus})}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="visa_free">Visa Free</option>
-                <option value="eta_required">eTA Required</option>
-                <option value="visa_on_arrival">Visa on Arrival</option>
-                <option value="evisa">eVisa Required</option>
-                <option value="reciprocity_fee">Reciprocity Fee</option>
-                <option value="consulate_visa">Consulate Visa Required</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Allowed Stay (days)</label>
-              <input
-                type="number"
-                value={newRequirement.allowed_stay_days}
-                onChange={(e) => setNewRequirement({...newRequirement, allowed_stay_days: parseInt(e.target.value)})}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Visa Fee</label>
-              <div className="flex">
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newRequirement.visa_fee_amount}
-                  onChange={(e) => setNewRequirement({...newRequirement, visa_fee_amount: parseFloat(e.target.value)})}
-                  className="block w-full px-3 py-2 border border-gray-300 rounded-l-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                />
-                <select
-                  value={newRequirement.visa_fee_currency}
-                  onChange={(e) => setNewRequirement({...newRequirement, visa_fee_currency: e.target.value})}
-                  className="px-3 py-2 border border-l-0 border-gray-300 rounded-r-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="USD">USD</option>
-                  <option value="CAD">CAD</option>
-                  <option value="AUD">AUD</option>
-                  <option value="NZD">NZD</option>
-                  <option value="EUR">EUR</option>
-                  <option value="GBP">GBP</option>
-                </select>
-              </div>
-            </div>
-          </div>
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-            <textarea
-              value={newRequirement.notes}
-              onChange={(e) => setNewRequirement({...newRequirement, notes: e.target.value})}
-              rows={2}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Additional notes about the requirement..."
-            />
-          </div>
-          <button
-            onClick={handleAddRequirement}
-            disabled={!newRequirement.destination_country}
-            className="mt-4 flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Requirement
-          </button>
-        </div>
-
-        {/* Requirements List */}
-        <div className="bg-white rounded-lg shadow-sm border">
-          <div className="px-6 py-4 border-b">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Requirements for {countries.find(c => c.code === selectedPassportCountry)?.flag} {countries.find(c => c.code === selectedPassportCountry)?.name} Passport Holders
-            </h2>
+        {/* Requirements Table */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900">Visa Requirements</h2>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destination</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stay</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fee</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notes</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {requirements.map((requirement) => (
-                  <tr key={requirement.id}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <span className="text-lg mr-2">{requirement.destination_country_info?.flag}</span>
-                        <span className="text-sm font-medium text-gray-900">{requirement.destination_country_info?.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(requirement.status)}`}>
-                        {requirement.status.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {requirement.allowed_stay_days} days
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {requirement.visa_fee_amount > 0 ? `${requirement.visa_fee_currency} ${requirement.visa_fee_amount}` : 'Free'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
-                      {requirement.notes}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button
-                        onClick={() => setEditingRequirement(requirement)}
-                        className="text-blue-600 hover:text-blue-900 mr-3"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {isLoading ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-sm text-gray-600 mt-2">Loading requirements...</p>
+              </div>
+            ) : (
+              <div>
+                <div className="text-sm text-gray-600 mb-4 px-6">
+                  Showing {allCountries.length} countries ({requirements.length} have requirements)
+                </div>
+                <table className="w-full" style={{ minWidth: '1400px' }}>
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ width: '20%' }}>Country</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ width: '15%' }}>Visa Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ width: '12%' }}>Allowed Stay</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ width: '10%' }}>Visa Fee</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ width: '10%' }}>Currency</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ width: '20%' }}>Notes</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ width: '13%' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {allCountries.map((country) => {
+                      const requirement = requirements.find(r => r.destination_country === country.code)
+                      const isEditing = editingRequirement?.destination_country === country.code
+
+                      return (
+                        <tr key={country.code} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <span className="text-lg mr-2">{country.flag}</span>
+                              <span className="text-sm font-medium text-gray-900">{country.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {isEditing ? (
+                              <select
+                                value={editingRequirement?.status || 'visa_free'}
+                                onChange={(e) => setEditingRequirement({...editingRequirement!, status: e.target.value})}
+                                className="px-2 py-1 border border-gray-300 rounded text-sm w-full"
+                                style={{ color: '#1f2937' }}
+                              >
+                                {statusTypes.map(statusType => (
+                                  <option key={statusType.code} value={statusType.code}>
+                                    {statusType.name}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <div className="flex items-center">
+                                <div 
+                                  className="w-3 h-3 rounded-full mr-2" 
+                                  style={{ backgroundColor: requirement ? getStatusColor(requirement.status) : '#6b7280' }}
+                                ></div>
+                                <span className="text-sm text-gray-900">
+                                  {requirement ? getStatusLabel(requirement.status) : 'Not Set'}
+                                </span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editingRequirement?.allowed_stay_days || ''}
+                                onChange={(e) => setEditingRequirement({...editingRequirement!, allowed_stay_days: e.target.value})}
+                                className="px-2 py-1 border border-gray-300 rounded text-sm w-20"
+                                style={{ color: '#1f2937' }}
+                              />
+                            ) : (
+                              <span className="text-sm text-gray-900">
+                                {requirement?.allowed_stay_days || '-'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                value={editingRequirement?.visa_fee_amount || 0}
+                                onChange={(e) => setEditingRequirement({...editingRequirement!, visa_fee_amount: parseFloat(e.target.value) || 0})}
+                                className="px-2 py-1 border border-gray-300 rounded text-sm w-20"
+                                style={{ color: '#1f2937' }}
+                              />
+                            ) : (
+                              <span className="text-sm text-gray-900">
+                                {requirement?.visa_fee_amount ? requirement.visa_fee_amount : '-'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {isEditing ? (
+                              <select
+                                value={editingRequirement?.visa_fee_currency || 'USD'}
+                                onChange={(e) => setEditingRequirement({...editingRequirement!, visa_fee_currency: e.target.value})}
+                                className="px-2 py-1 border border-gray-300 rounded text-sm w-20"
+                                style={{ color: '#1f2937' }}
+                              >
+                                <option value="USD">USD</option>
+                                <option value="EUR">EUR</option>
+                                <option value="GBP">GBP</option>
+                                <option value="AUD">AUD</option>
+                                <option value="CAD">CAD</option>
+                                <option value="THB">THB</option>
+                                <option value="NZD">NZD</option>
+                              </select>
+                            ) : (
+                              <span className="text-sm text-gray-900">
+                                {requirement?.visa_fee_currency || '-'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editingRequirement?.notes || ''}
+                                onChange={(e) => setEditingRequirement({...editingRequirement!, notes: e.target.value})}
+                                className="px-2 py-1 border border-gray-300 rounded text-sm w-32"
+                                style={{ color: '#1f2937' }}
+                              />
+                            ) : (
+                              <span className="text-sm text-gray-900">
+                                {requirement?.notes || '-'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            {isEditing ? (
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={() => handleSaveRequirement(editingRequirement!)}
+                                  className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs font-medium"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={() => setEditingRequirement(null)}
+                                  className="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 text-xs font-medium"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={() => handleEditClick(country, requirement)}
+                                  className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs font-medium"
+                                >
+                                  {requirement ? 'Edit' : 'Add'}
+                                </button>
+                                {requirement && (
+                                  <button
+                                    onClick={() => handleDeleteRequirement(requirement.id!)}
+                                    className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-xs font-medium"
+                                  >
+                                    Delete
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       </div>

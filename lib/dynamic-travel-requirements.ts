@@ -1,89 +1,251 @@
 import { supabase } from './supabase'
-import { TravelStatus, UserDocument } from './types'
-import { travelBuddyAPI } from './travel-buddy-api'
+import { UserDocument, TravelStatus } from './types'
+import { getAllRequirements } from './simple-database'
+import { getBestPassportForDestination } from './best-passport-selector'
 
-// Dynamic travel requirements using database + Travel Buddy API
-export async function getDynamicTravelStatus(
+interface VisaStatusType {
+  id: number
+  code: string
+  name: string
+  description: string
+  color: string
+  is_active: boolean
+}
+
+// Cache for status types to avoid repeated database calls
+let statusTypesCache: VisaStatusType[] | null = null
+let cacheTimestamp: number = 0
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
+// Function to clear cache and force refresh
+export function clearStatusTypesCache() {
+  statusTypesCache = null
+  cacheTimestamp = 0
+  console.log('🗑️ Cleared status types cache')
+}
+
+// Function to force refresh status types (clear cache and reload)
+export async function forceRefreshStatusTypes(): Promise<VisaStatusType[]> {
+  clearStatusTypesCache()
+  return await loadStatusTypes()
+}
+
+// Load status types from database
+export async function loadStatusTypes(): Promise<VisaStatusType[]> {
+  const now = Date.now()
+  
+  // Return cached data if still valid
+  if (statusTypesCache && (now - cacheTimestamp) < CACHE_DURATION) {
+    console.log('📦 Using cached status types')
+    return statusTypesCache
+  }
+
+  console.log('🔄 Loading fresh status types from database')
+  try {
+    const { data, error } = await supabase
+      .from('visa_status_types')
+      .select('*')
+      .eq('is_active', true)
+      .order('id')
+
+    if (error) {
+      console.error('Error loading status types:', error)
+      return []
+    }
+
+    // Update cache
+    statusTypesCache = data || []
+    cacheTimestamp = now
+    
+    console.log('✅ Loaded fresh status types:', statusTypesCache)
+    return statusTypesCache
+  } catch (error) {
+    console.error('Error loading status types:', error)
+    return []
+  }
+}
+
+// Dynamic status color mapping based on database
+export async function getDynamicStatusColor(status: string): Promise<string> {
+  const statusTypes = await loadStatusTypes()
+  const statusType = statusTypes.find(st => st.code === status)
+  
+  // Return the color from database if found, otherwise fallback to default
+  return statusType?.color || '#6b7280' // gray as default
+}
+
+// Dynamic status label mapping based on database
+export async function getDynamicStatusLabel(status: string): Promise<string> {
+  const statusTypes = await loadStatusTypes()
+  const statusType = statusTypes.find(st => st.code === status)
+  
+  return statusType ? statusType.name : status
+}
+
+// REMOVED: Hardcoded getStatusColor function - now using dynamic database colors
+
+export function getStatusLabel(status: TravelStatus): string {
+  // This maintains backward compatibility while we transition
+  switch (status) {
+    case 'visa_free': return 'Visa Free'
+    case 'eta_required': return 'eTA Required'
+    case 'visa_on_arrival': return 'Visa on Arrival'
+    case 'evisa': return 'eVisa'
+    case 'consulate_visa': return 'Consulate Visa Required'
+    default: return 'Unknown Status'
+  }
+}
+
+// Single passport status function (original logic for performance)
+async function getSinglePassportStatuses(
+  passport: UserDocument,
+  countryCodes: string[]
+): Promise<Record<string, TravelStatus>> {
+  const primaryPassport = passport.issuing_country
+  
+  // Get database requirements
+  const { data: requirements, error } = await supabase
+    .from('visa_requirements')
+    .select('*')
+    .eq('passport_country', primaryPassport)
+    .eq('is_active', true)
+
+  const requirementsMap = new Map()
+  requirements?.forEach(req => {
+    const key = `${req.passport_country}-${req.destination_country}`
+    requirementsMap.set(key, req.status)
+  })
+
+  console.log(`🌐 Using single passport logic for ${primaryPassport}`)
+
+  const result: Record<string, TravelStatus> = {}
+  
+  for (const countryCode of countryCodes) {
+    let bestStatus: TravelStatus = 'consulate_visa'
+    
+    // Check citizenship
+    if (passport.issuing_country === countryCode) {
+      bestStatus = 'citizen'
+    }
+    // Use database data
+    else {
+      const key = `${primaryPassport}-${countryCode}`
+      const dbStatus = requirementsMap.get(key)
+      if (dbStatus) {
+        bestStatus = dbStatus as TravelStatus
+      }
+    }
+    
+    result[countryCode] = bestStatus
+  }
+  
+  return result
+}
+
+// Override function to fix incorrect API data
+function applyOverride(status: TravelStatus, countryCode: string): TravelStatus {
+  // Override specific countries where API data is incorrect
+  const overrides: Record<string, TravelStatus> = {
+    'IN': 'evisa',      // India: API says visa_on_arrival, but actually eVisa
+    'BR': 'evisa',      // Brazil: API says visa_on_arrival, but actually eVisa
+    // Add more overrides as needed
+  };
+  
+  return overrides[countryCode] || status;
+}
+
+// Simplified travel requirements - passports only
+export async function getSimpleTravelStatus(
   userDocuments: UserDocument[],
   destinationCountry: string
 ): Promise<TravelStatus> {
   try {
-    // Get primary passport
-    const passport = userDocuments.find(doc => doc.document_type === 'passport')
-    if (!passport) return 'consulate_visa'
-
-    const passportCountry = passport.issuing_country
+    // Get user's passports
+    const passports = userDocuments.filter(doc => doc.document_type === 'passport')
     
-    // Check if user is a citizen of the destination country (passport from that country)
-    if (destinationCountry === passportCountry) {
-      return 'visa_free'
-    }
-    
-    // Check if user has permanent residency in the destination country
-    const permanentResidency = userDocuments.find(doc => 
-      (doc.document_type === 'permanent_residence') &&
-      doc.issuing_country === destinationCountry
-    )
-    
-    if (permanentResidency) {
-      return 'visa_free' // Permanent residents don't need visas
-    }
-    
-      // PR logic removed - simplified system
-    
-    // Check if user has an existing visa for the destination country
-    // Visa logic removed - passports only
-    
-    // Check for special overrides in database
-    const { data: overrides, error: overrideError } = await supabase
-      .from('special_overrides')
-      .select('*')
-      .eq('destination_country', destinationCountry)
-      .eq('is_active', true)
-
-    if (!overrideError && overrides && overrides.length > 0) {
-      for (const override of overrides) {
-        const requiredDocs = override.required_documents
-        const hasRequiredDocs = requiredDocs.every((requiredDoc: string) => {
-          if (requiredDoc === passportCountry) return true
-          return userDocuments.some(doc => 
-            doc.document_type === requiredDoc && 
-            doc.issuing_country === passportCountry
-          )
-        })
-        if (hasRequiredDocs) return override.override_status as TravelStatus
-      }
-    }
-
-      // Note: Individual visa requirement endpoint doesn't exist
-  // We'll use the map data instead
-
-    // Fallback: Get regular requirements from database
-    const { data: requirements, error } = await supabase
-      .from('visa_requirements')
-      .select('*')
-      .eq('passport_country', passportCountry)
-      .eq('destination_country', destinationCountry)
-      .eq('is_active', true)
-      .single()
-
-    if (error || !requirements) {
-      console.warn(`No visa requirements found for ${passportCountry} → ${destinationCountry}`)
+    if (passports.length === 0) {
       return 'consulate_visa'
     }
 
-    return requirements.status as TravelStatus
+    // Check if user is a citizen of the destination country
+    const isCitizen = passports.some(passport => passport.issuing_country === destinationCountry)
+    if (isCitizen) {
+      return 'citizen'
+    }
+
+    // Use database for visa requirements
+    const primaryPassport = passports[0].issuing_country
+    console.log(`🌐 Getting visa requirements from database for ${primaryPassport} → ${destinationCountry}`)
+    
+    const requirements = await getAllRequirements(primaryPassport)
+    const requirement = requirements.find(r => r.destination_country === destinationCountry)
+    
+    if (requirement) {
+      console.log(`✅ Database visa requirement found: ${requirement.status}`)
+      return applyOverride(requirement.status as TravelStatus, destinationCountry)
+    }
+
+    // Fallback to default
+    console.warn(`No visa requirements found for ${primaryPassport} → ${destinationCountry}`)
+    return 'consulate_visa'
   } catch (error) {
-    console.error('Error getting dynamic travel status:', error)
+    console.error('Error getting simple travel status:', error)
     return 'consulate_visa'
   }
 }
 
-export async function getDynamicRequirementsText(
-  status: TravelStatus, 
-  countryCode: string, 
-  userDocuments?: UserDocument[]
-): Promise<{
+// Enhanced batch function with best passport selection
+export async function getSimpleBatchTravelStatuses(
+  userDocuments: UserDocument[],
+  countryCodes: string[]
+): Promise<Record<string, TravelStatus>> {
+  try {
+    // Get user's passports
+    const passports = userDocuments.filter(doc => doc.document_type === 'passport')
+    
+    if (passports.length === 0) {
+      const result: Record<string, TravelStatus> = {}
+      countryCodes.forEach(code => result[code] = 'consulate_visa')
+      return result
+    }
+
+    // If only one passport, use the old logic for performance
+    if (passports.length === 1) {
+      return await getSinglePassportStatuses(passports[0], countryCodes)
+    }
+
+    // Multiple passports - use best passport logic
+    console.log(`🎯 Using best passport selection for ${passports.length} passports`)
+    
+    const result: Record<string, TravelStatus> = {}
+    
+    // Process each country with best passport selection
+    for (const countryCode of countryCodes) {
+      try {
+        const bestPassport = await getBestPassportForDestination(passports, countryCode)
+        result[countryCode] = bestPassport.status
+        
+        // Log the selection for debugging
+        console.log(`🌍 ${countryCode}: Using ${bestPassport.passport} passport (${bestPassport.status}) - ${bestPassport.reason}`)
+        
+      } catch (error) {
+        console.error(`Error getting best passport for ${countryCode}:`, error)
+        // Fallback to first passport
+        result[countryCode] = 'consulate_visa'
+      }
+    }
+    
+    return result
+  } catch (error) {
+    console.error('Error in simple batch travel statuses:', error)
+    const result: Record<string, TravelStatus> = {}
+    countryCodes.forEach(code => result[code] = 'consulate_visa')
+    return result
+  }
+}
+
+// Dynamic requirements text generator based on database
+export async function getDynamicRequirementsText(status: string, countryCode: string, passportCountry?: string): Promise<{
   passportValidity?: string
   allowedStay?: string
   notes?: string
@@ -91,366 +253,114 @@ export async function getDynamicRequirementsText(
   processingTime?: string
 }> {
   try {
-    // Check if this is the user's own country (citizen case)
-    if (userDocuments) {
-      const passport = userDocuments.find(doc => doc.document_type === 'passport')
-      if (passport && passport.issuing_country === countryCode) {
-        return {
-          passportValidity: 'Valid passport required',
-          allowedStay: 'Unlimited (citizen)',
-          notes: 'No visa required - you are a citizen of this country',
-          visaFee: 'Free',
-          processingTime: 'N/A'
-        }
-      }
-      
-      // Check if user has permanent residency in this country
-      const permanentResidency = userDocuments.find(doc => 
-        doc.document_type === 'permanent_residence' &&
-        doc.issuing_country === countryCode
-      )
-      
-      if (permanentResidency) {
-        return {
-          passportValidity: 'Valid passport required',
-          allowedStay: 'Unlimited (permanent resident)',
-          notes: 'No visa required - you are a permanent resident of this country',
-          visaFee: 'Free',
-          processingTime: 'N/A'
-        }
-      }
-      
-      // Check if user has an existing valid visa for this country
-      const existingVisa = userDocuments.find(doc => 
-        (doc.document_type === 'tourist_visa' || 
-         doc.document_type === 'business_visa' || 
-         doc.document_type === 'student_visa' || 
-         doc.document_type === 'work_permit') &&
-        doc.issuing_country === countryCode
-      )
-      
-      if (existingVisa) {
-        const visaExpiry = new Date(existingVisa.expiration_date)
-        const today = new Date()
-        if (visaExpiry > today) {
-          return {
-            passportValidity: '6+ months beyond stay',
-            allowedStay: 'As per visa validity',
-            notes: `You have a valid ${existingVisa.document_type.replace('_', ' ')} until ${visaExpiry.toLocaleDateString()}`,
-            visaFee: 'Already paid',
-            processingTime: 'N/A'
-          }
-        }
-      }
-    }
+    // Get status type info for description (always fetch fresh from database)
+    const statusTypes = await loadStatusTypes()
+    const statusType = statusTypes.find(st => st.code === status)
     
-    // Get country-specific requirements from database
-    const { data: requirements, error } = await supabase
-      .from('country_requirements')
-      .select('*')
-      .eq('country_code', countryCode)
-      .eq('is_active', true)
+    // Use provided passport country or default to US
+    const userPassportCountry = passportCountry || 'US'
+    
+    // Get specific visa requirements from database
+    const { data: visaRequirements, error } = await supabase
+      .from('visa_requirements')
+      .select('allowed_stay_days, visa_fee_amount, visa_fee_currency, notes')
+      .eq('passport_country', userPassportCountry)
+      .eq('destination_country', countryCode)
+      .single()
 
-    if (!error && requirements && requirements.length > 0) {
-      const result: any = {}
-      requirements.forEach(req => {
-        switch (req.requirement_type) {
-          case 'passport_validity':
-            result.passportValidity = req.requirement_value
-            break
-          case 'allowed_stay':
-            result.allowedStay = req.requirement_value
-            break
-          case 'visa_fee':
-            result.visaFee = req.requirement_value
-            break
-          case 'processing_time':
-            result.processingTime = req.requirement_value
-            break
-          case 'notes':
-            result.notes = req.requirement_value
-            break
-        }
-      })
-      return result
+    if (error) {
+      console.error('Error fetching visa requirements:', error)
     }
+
+    // Always use the description from visa_status_types (single source of truth)
+    const description = statusType?.description || 'Check embassy website for current requirements.'
     
-    // Fallback to generic requirements based on status
-    return getGenericRequirements(status)
+    // Format allowed stay
+            const allowedStayDays = visaRequirements?.allowed_stay_days || 'Unknown'
+    const allowedStayText = allowedStayDays || 'Varies by destination'
+
+    // Format visa fee
+    const visaFeeAmount = visaRequirements?.visa_fee_amount
+    const visaFeeCurrency = visaRequirements?.visa_fee_currency
+    const visaFeeText = visaFeeAmount && visaFeeCurrency
+      ? `${visaFeeAmount} ${visaFeeCurrency}`
+      : 'Varies'
+
+    return {
+      passportValidity: 'Valid passport required',
+      allowedStay: allowedStayText,
+      notes: description, // Always use fresh description from status types
+      visaFee: visaFeeText,
+      processingTime: 'Varies'
+    }
   } catch (error) {
-    console.error('Error getting dynamic requirements text:', error)
-    return getGenericRequirements(status)
+    console.error('Error in getDynamicRequirementsText:', error)
+    return {
+      passportValidity: 'Valid passport required',
+      allowedStay: 'Varies by destination',
+      notes: 'Check embassy website for current requirements.',
+      visaFee: 'Varies',
+      processingTime: 'Varies'
+    }
   }
 }
 
-function getGenericRequirements(status: TravelStatus) {
+// Simple requirements text generator (backward compatibility)
+export function getRequirementsText(status: TravelStatus, countryCode: string): {
+  passportValidity?: string
+  allowedStay?: string
+  notes?: string
+  visaFee?: string
+  processingTime?: string
+} {
   switch (status) {
     case 'visa_free':
       return {
-        passportValidity: '6+ months beyond stay',
-        allowedStay: '30-90 days',
+        passportValidity: 'Valid passport required',
+        allowedStay: '90 days (typically)',
         notes: 'No visa required for tourism',
         visaFee: 'Free',
         processingTime: 'N/A'
       }
     case 'eta_required':
       return {
-        passportValidity: '6+ months beyond stay',
-        allowedStay: '90 days',
+        passportValidity: 'Valid passport required',
+        allowedStay: '90 days (typically)',
         notes: 'Electronic Travel Authorization required',
-        visaFee: 'Varies by country',
-        processingTime: 'Immediate'
+        visaFee: '$5-20 USD',
+        processingTime: 'Immediate to 24 hours'
       }
     case 'visa_on_arrival':
       return {
-        passportValidity: '6+ months beyond stay',
-        allowedStay: '15-30 days',
-        notes: 'Visa can be obtained at airport/border',
-        visaFee: 'Varies by country',
-        processingTime: 'Immediate'
+        passportValidity: 'Valid passport required',
+        allowedStay: '30-90 days',
+        notes: 'Visa can be obtained at airport',
+        visaFee: '$25-100 USD',
+        processingTime: '15-30 minutes at airport'
       }
     case 'evisa':
       return {
-        passportValidity: '6+ months beyond stay',
-        allowedStay: '30-60 days',
-        notes: 'Apply online before travel',
-        visaFee: 'USD 20-80',
-        processingTime: '1-5 business days'
-      }
-    case 'reciprocity_fee':
-      return {
-        passportValidity: '6+ months beyond stay',
-        allowedStay: '90 days',
-        notes: 'Reciprocity fee required',
-        visaFee: 'USD 50-200',
-        processingTime: 'Immediate'
+        passportValidity: 'Valid passport required',
+        allowedStay: '30-90 days',
+        notes: 'Electronic visa required before travel',
+        visaFee: '$25-100 USD',
+        processingTime: '3-7 business days'
       }
     case 'consulate_visa':
       return {
-        passportValidity: '6+ months beyond stay',
+        passportValidity: 'Valid passport required',
         allowedStay: 'Varies by visa type',
-        notes: 'Apply at embassy/consulate',
-        visaFee: 'USD 50-200+',
-        processingTime: '5-20 business days'
+        notes: 'Visa must be obtained at consulate',
+        visaFee: '$50-200 USD',
+        processingTime: '1-4 weeks'
       }
     default:
       return {
+        passportValidity: 'Valid passport required',
+        allowedStay: 'Check with embassy',
         notes: 'Contact embassy for requirements',
-        visaFee: 'Contact embassy',
-        processingTime: 'Contact embassy'
+        visaFee: 'Varies',
+        processingTime: 'Varies'
       }
   }
-}
-
-// Admin functions for managing the database
-export async function updateVisaRequirement(
-  passportCountry: string,
-  destinationCountry: string,
-  status: TravelStatus,
-  details: {
-    allowedStayDays?: number
-    visaFeeAmount?: number
-    visaFeeCurrency?: string
-    processingTimeDays?: number
-    notes?: string
-  }
-) {
-  const { data, error } = await supabase
-    .from('visa_requirements')
-    .upsert({
-      passport_country: passportCountry,
-      destination_country: destinationCountry,
-      status,
-      allowed_stay_days: details.allowedStayDays,
-      visa_fee_amount: details.visaFeeAmount,
-      visa_fee_currency: details.visaFeeCurrency,
-      processing_time_days: details.processingTimeDays,
-      notes: details.notes,
-      last_updated: new Date().toISOString()
-    })
-
-  return { data, error }
-}
-
-export async function addSpecialOverride(
-  destinationCountry: string,
-  requiredDocuments: string[],
-  overrideStatus: TravelStatus,
-  notes?: string
-) {
-  const { data, error } = await supabase
-    .from('special_overrides')
-    .insert({
-      destination_country: destinationCountry,
-      required_documents: requiredDocuments,
-      override_status: overrideStatus,
-      notes
-    })
-
-  return { data, error }
-}
-
-// Analytics and usage tracking
-export async function logTravelQuery(
-  userId: string,
-  passportCountry: string,
-  destinationCountry: string,
-  result: TravelStatus
-) {
-  const { data, error } = await supabase
-    .from('api_logs')
-    .insert({
-      user_id: userId,
-      endpoint: 'travel_status',
-      request_data: { passportCountry, destinationCountry },
-      response_data: { status: result },
-      response_time_ms: 0 // Would be calculated in real implementation
-    })
-
-  return { data, error }
-}
-
-// Helper function to get all countries from database
-export async function getCountriesFromDB() {
-  const { data, error } = await supabase
-    .from('countries')
-    .select('*')
-    .order('name')
-
-  if (error) {
-    console.error('Error fetching countries:', error)
-    return []
-  }
-
-  return data || []
-}
-
-// Helper function to get visa requirements for a passport country
-export async function getVisaRequirementsForPassport(passportCountry: string) {
-  const { data, error } = await supabase
-    .from('visa_requirements')
-    .select(`
-      *,
-      destination_country_info:countries!visa_requirements_destination_country_fkey (
-        code,
-        name,
-        flag
-      )
-    `)
-    .eq('passport_country', passportCountry)
-    .eq('is_active', true)
-    .order('destination_country_info(name)')
-
-  if (error) {
-    console.error('Error fetching visa requirements:', error)
-    return []
-  }
-
-  return data || []
-}
-
-// Batch function to get all travel statuses for a user
-export async function getBatchTravelStatuses(
-  userDocuments: UserDocument[],
-  countryCodes: string[]
-): Promise<Record<string, TravelStatus>> {
-  try {
-    // Get all passports and permanent residency documents
-    const passports = userDocuments.filter(doc => doc.document_type === 'passport')
-    const permanentResidency = userDocuments.filter(doc => 
-      doc.document_type === 'permanent_residence'
-    )
-    
-    if (passports.length === 0) {
-      // No passport, return consulate visa for all countries
-      const result: Record<string, TravelStatus> = {}
-      countryCodes.forEach(code => result[code] = 'consulate_visa')
-      return result
-    }
-
-    // Get all passport countries and permanent residency countries
-    const passportCountries = passports.map(p => p.issuing_country)
-    const prCountries = permanentResidency.map(pr => pr.issuing_country)
-    
-      // Get Travel Buddy API data for the primary passport
-  const primaryPassport = passportCountries[0]
-  console.log(`🌐 Getting Travel Buddy map colors for ${primaryPassport}`)
-  
-  const apiResponse = await travelBuddyAPI.getMapColors(primaryPassport)
-  let apiMapColors: Record<string, string> = {}
-  
-  if (apiResponse.success && apiResponse.data) {
-    console.log(`✅ Travel Buddy API map colors received`)
-    // Convert API response to our format
-    apiResponse.data.forEach((item: any) => {
-      if (item.countryCode && item.color) {
-        apiMapColors[item.countryCode] = travelBuddyAPI.convertColorToStatus(item.color)
-      }
-    })
-  } else {
-    console.log(`❌ Travel Buddy API failed:`, apiResponse.error)
-  }
-    
-    // Get all requirements for all passport countries in one query (fallback)
-    const { data: requirements, error } = await supabase
-      .from('visa_requirements')
-      .select('*')
-      .in('passport_country', passportCountries)
-      .eq('is_active', true)
-
-    if (error) {
-      console.error('Error fetching batch requirements:', error)
-      const result: Record<string, TravelStatus> = {}
-      countryCodes.forEach(code => result[code] = 'consulate_visa')
-      return result
-    }
-
-    // Create a map for quick lookup: passport_country -> destination_country -> status
-    const requirementsMap = new Map()
-    requirements?.forEach(req => {
-      const key = `${req.passport_country}-${req.destination_country}`
-      requirementsMap.set(key, req.status)
-    })
-
-    // Special overrides removed - simplified system
-
-    // Process each country
-    const result: Record<string, TravelStatus> = {}
-    
-    for (const countryCode of countryCodes) {
-      let bestStatus: TravelStatus = 'consulate_visa'
-      
-      // Check citizenship (any passport from destination country)
-      if (passportCountries.includes(countryCode)) {
-        bestStatus = 'visa_free'
-      }
-      
-      // Visa logic removed - passports only
-      
-      // Use Travel Buddy API data if available
-      if (bestStatus === 'consulate_visa' && apiMapColors[countryCode]) {
-        bestStatus = apiMapColors[countryCode] as TravelStatus
-      }
-      // Fallback to database
-      else if (bestStatus === 'consulate_visa') {
-        for (const passportCountry of passportCountries) {
-          const key = `${passportCountry}-${countryCode}`
-          const dbStatus = requirementsMap.get(key)
-          if (dbStatus) {
-            bestStatus = dbStatus as TravelStatus
-            break
-          }
-        }
-      }
-      
-      result[countryCode] = bestStatus
-    }
-    
-    return result
-  } catch (error) {
-    console.error('Error in batch travel statuses:', error)
-    const result: Record<string, TravelStatus> = {}
-    countryCodes.forEach(code => result[code] = 'consulate_visa')
-    return result
-  }
-}
+} 

@@ -86,12 +86,12 @@ export default function SignupPage() {
                 Display Name
               </label>
               <div className="mt-1 relative">
-                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 h-5 w-5" />
                 <input
                   {...register('displayName')}
                   type="text"
                   className={cn(
-                    "pl-10 w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-500",
+                    "pl-10 w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-800",
                     errors.displayName ? "border-red-300" : "border-gray-300"
                   )}
                   placeholder="Enter your name"
@@ -108,12 +108,12 @@ export default function SignupPage() {
                 Email Address
               </label>
               <div className="mt-1 relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 h-5 w-5" />
                 <input
                   {...register('email')}
                   type="email"
                   className={cn(
-                    "pl-10 w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-500",
+                    "pl-10 w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-800",
                     errors.email ? "border-red-300" : "border-gray-300"
                   )}
                   placeholder="Enter your email"
@@ -130,12 +130,12 @@ export default function SignupPage() {
                 Password
               </label>
               <div className="mt-1 relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 h-5 w-5" />
                 <input
                   {...register('password')}
                   type="password"
                   className={cn(
-                    "pl-10 w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-500",
+                    "pl-10 w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-800",
                     errors.password ? "border-red-300" : "border-gray-300"
                   )}
                   placeholder="Create a password"

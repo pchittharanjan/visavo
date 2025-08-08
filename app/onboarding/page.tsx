@@ -7,10 +7,11 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
-import { countries, getDocumentTypesForCountry } from '@/lib/countries'
-import { UserDocument, DocumentType } from '@/lib/types'
+import { getCountries, getDocumentTypesWithDescriptions } from '@/lib/countries'
+import { UserDocument, DocumentType, Country } from '@/lib/types'
 import { formatDate, isExpired } from '@/lib/utils'
-import { Plus, X, Calendar, Globe, FileText, AlertCircle } from 'lucide-react'
+import DocumentCard from '@/components/DocumentCard'
+import { Plus, Globe, FileText, AlertCircle, Calendar } from 'lucide-react'
 
 const documentSchema = z.object({
   issuingCountry: z.string().min(1, 'Please select a country'),
@@ -22,6 +23,8 @@ type DocumentForm = z.infer<typeof documentSchema>
 
 export default function OnboardingPage() {
   const [documents, setDocuments] = useState<UserDocument[]>([])
+  const [countries, setCountries] = useState<Country[]>([])
+  const [documentTypes, setDocumentTypes] = useState<Array<{name: string, description: string}>>([])
   const [isLoading, setIsLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   const [selectedCountry, setSelectedCountry] = useState('')
@@ -42,6 +45,37 @@ export default function OnboardingPage() {
   useEffect(() => {
     setSelectedCountry(watchedCountry)
   }, [watchedCountry])
+
+  useEffect(() => {
+    fetchCountries()
+  }, [])
+
+  useEffect(() => {
+    if (selectedCountry) {
+      fetchDocumentTypes(selectedCountry)
+    } else {
+      setDocumentTypes([])
+    }
+  }, [selectedCountry])
+
+  const fetchCountries = async () => {
+    try {
+      // Only show US, CA, MX for slow rollout
+      const countriesData = await getCountries(['US', 'CA', 'MX'])
+      setCountries(countriesData)
+    } catch (error) {
+      console.error('Error fetching countries:', error)
+    }
+  }
+
+  const fetchDocumentTypes = async (countryCode: string) => {
+    try {
+      const docTypes = await getDocumentTypesWithDescriptions()
+      setDocumentTypes(docTypes)
+    } catch (error) {
+      console.error('Error fetching document types:', error)
+    }
+  }
 
   const onSubmit = async (data: DocumentForm) => {
     setIsLoading(true)
@@ -127,16 +161,11 @@ export default function OnboardingPage() {
     fetchDocuments()
   }, [])
 
-  const documentTypes = selectedCountry ? getDocumentTypesForCountry(selectedCountry) : []
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-            <span className="text-white font-display font-bold text-lg">V</span>
-          </div>
           <h1 className="text-3xl font-display font-bold text-gray-900">visavo</h1>
         </div>
       </div>
@@ -147,7 +176,7 @@ export default function OnboardingPage() {
           <div className="text-center mb-8">
             <h2 className="text-2xl font-display font-bold text-gray-900 mb-2">Add Your Documents</h2>
             <p className="text-sm text-gray-600 font-body">
-              Add your US, Canada, or Mexico passport to unlock your travel possibilities
+              Add your US, Canada, or Mexico travel documents to unlock your travel possibilities
             </p>
           </div>
 
@@ -165,10 +194,10 @@ export default function OnboardingPage() {
                   </label>
                   <select
                     {...register('issuingCountry')}
-                    className={cn(
-                      "w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900",
-                      errors.issuingCountry ? "border-red-300" : "border-gray-300"
-                    )}
+                                      className={cn(
+                    "w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-800",
+                    errors.issuingCountry ? "border-red-300" : "border-gray-300"
+                  )}
                   >
                     <option value="">Select a country</option>
                     {countries.map((country) => (
@@ -191,13 +220,17 @@ export default function OnboardingPage() {
                   <select
                     {...register('documentType')}
                     className={cn(
-                      "w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900",
+                      "w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-800",
                       errors.documentType ? "border-red-300" : "border-gray-300"
                     )}
                     disabled={!selectedCountry}
                   >
                     <option value="">Select document type</option>
-                    <option value="passport">Passport</option>
+                    {documentTypes.map((docType) => (
+                      <option key={docType.name} value={docType.name}>
+                        {docType.description}
+                      </option>
+                    ))}
                   </select>
                   {errors.documentType && (
                     <p className="mt-1 text-sm text-red-600">{errors.documentType.message}</p>
@@ -213,10 +246,10 @@ export default function OnboardingPage() {
                   <input
                     {...register('expirationDate')}
                     type="date"
-                    className={cn(
-                      "w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900",
-                      errors.expirationDate ? "border-red-300" : "border-gray-300"
-                    )}
+                                      className={cn(
+                    "w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-800",
+                    errors.expirationDate ? "border-red-300" : "border-gray-300"
+                  )}
                   />
                   {errors.expirationDate && (
                     <p className="mt-1 text-sm text-red-600">{errors.expirationDate.message}</p>
@@ -251,52 +284,20 @@ export default function OnboardingPage() {
               <h2 className="text-lg font-display font-bold text-gray-900 mb-4">Your Documents</h2>
               
               {documents.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                            <div className="text-center py-8 text-gray-700">
+              <FileText className="h-12 w-12 mx-auto mb-4 text-gray-600" />
                   <p>No documents added yet</p>
                   <p className="text-sm">Add your first document to get started</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {documents.map((doc) => {
-                    const country = countries.find(c => c.code === doc.issuing_country)
-                    const isExpiredDoc = isExpired(new Date(doc.expiration_date))
-                    
-                    return (
-                      <div
-                        key={doc.id}
-                        className={cn(
-                          "flex items-center justify-between p-3 border rounded-lg",
-                          isExpiredDoc ? "border-red-200 bg-red-50" : "border-gray-200"
-                        )}
-                      >
-                        <div className="flex items-center space-x-3">
-                          <span className="text-2xl">{country?.flag}</span>
-                          <div>
-                            <p className="font-medium text-gray-900">
-                              {country?.name}
-                            </p>
-                            <p className="text-sm text-gray-600">
-                              {doc.document_type.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
-                            </p>
-                            <p className={cn(
-                              "text-xs",
-                              isExpiredDoc ? "text-red-600" : "text-gray-500"
-                            )}>
-                              Expires: {formatDate(new Date(doc.expiration_date))}
-                              {isExpiredDoc && " (Expired)"}
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => deleteDocument(doc.id.toString())}
-                          className="text-red-500 hover:text-red-700 p-1"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                    )
-                  })}
+                  {documents.map((doc) => (
+                    <DocumentCard
+                      key={doc.id}
+                      document={doc}
+                      onDelete={deleteDocument}
+                    />
+                  ))}
                 </div>
               )}
 
