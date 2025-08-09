@@ -267,7 +267,7 @@ export default function Globe({ userDocuments, onCountryClick, selectedCountry }
         </div>
 
         {/* Show More Section */}
-        <div className="text-center mb-16">
+        <div className="text-center pb-6">
           <p className="text-xs text-gray-700 mb-2 font-body">
             Showing {visibleCountries.length} of {filteredCountries.length} countries
           </p>

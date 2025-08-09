@@ -142,17 +142,7 @@ async function getSinglePassportStatuses(
   return result
 }
 
-// Override function to fix incorrect API data
-function applyOverride(status: TravelStatus, countryCode: string): TravelStatus {
-  // Override specific countries where API data is incorrect
-  const overrides: Record<string, TravelStatus> = {
-    'IN': 'evisa',      // India: API says visa_on_arrival, but actually eVisa
-    'BR': 'evisa',      // Brazil: API says visa_on_arrival, but actually eVisa
-    // Add more overrides as needed
-  };
-  
-  return overrides[countryCode] || status;
-}
+// Removed special-case status overrides to avoid hardcoding
 
 // Simplified travel requirements - passports only
 export async function getSimpleTravelStatus(
@@ -182,7 +172,7 @@ export async function getSimpleTravelStatus(
     
     if (requirement) {
       console.log(`✅ Database visa requirement found: ${requirement.status}`)
-      return applyOverride(requirement.status as TravelStatus, destinationCountry)
+      return requirement.status as TravelStatus
     }
 
     // Fallback to default
@@ -245,7 +235,7 @@ export async function getSimpleBatchTravelStatuses(
 }
 
 // Dynamic requirements text generator based on database
-export async function getDynamicRequirementsText(status: string, countryCode: string, passportCountry?: string): Promise<{
+export async function getDynamicRequirementsText(status: string, countryCode: string, passportCountry: string): Promise<{
   passportValidity?: string
   allowedStay?: string
   notes?: string
@@ -257,14 +247,11 @@ export async function getDynamicRequirementsText(status: string, countryCode: st
     const statusTypes = await loadStatusTypes()
     const statusType = statusTypes.find(st => st.code === status)
     
-    // Use provided passport country or default to US
-    const userPassportCountry = passportCountry || 'US'
-    
     // Get specific visa requirements from database
     const { data: visaRequirements, error } = await supabase
       .from('visa_requirements')
-      .select('allowed_stay_days, visa_fee_amount, visa_fee_currency, notes')
-      .eq('passport_country', userPassportCountry)
+      .select('allowed_stay_days, visa_fee_amount, visa_fee_currency, notes, passport_validity_months')
+      .eq('passport_country', passportCountry)
       .eq('destination_country', countryCode)
       .single()
 
@@ -274,6 +261,38 @@ export async function getDynamicRequirementsText(status: string, countryCode: st
 
     // Always use the description from visa_status_types (single source of truth)
     const description = statusType?.description || 'Check embassy website for current requirements.'
+
+    // Fetch country-level passport validity text from countries table (preferred),
+    // fall back to country_requirements if needed
+    let countryPassportValidity: string | undefined
+    try {
+      const { data: countryRow, error: countryError } = await supabase
+        .from('countries')
+        .select('passport_validity')
+        .eq('code', countryCode)
+        .single()
+      if (!countryError && countryRow && (countryRow as any).passport_validity) {
+        countryPassportValidity = (countryRow as any).passport_validity as string
+      }
+    } catch (e) {
+      console.warn('countries.passport_validity not available or query failed; will try country_requirements:', e)
+    }
+    if (!countryPassportValidity) {
+      try {
+        const { data: countryReq, error: countryReqError } = await supabase
+          .from('country_requirements')
+          .select('requirement_value')
+          .eq('country_code', countryCode)
+          .eq('requirement_type', 'passport_validity')
+          .eq('is_active', true)
+          .limit(1)
+        if (!countryReqError && countryReq && countryReq.length > 0) {
+          countryPassportValidity = countryReq[0]?.requirement_value as string | undefined
+        }
+      } catch (e) {
+        console.error('Error fetching country passport validity from country_requirements:', e)
+      }
+    }
     
     // Format allowed stay
             const allowedStayDays = visaRequirements?.allowed_stay_days || 'Unknown'
@@ -286,8 +305,13 @@ export async function getDynamicRequirementsText(status: string, countryCode: st
       ? `${visaFeeAmount} ${visaFeeCurrency}`
       : 'Varies'
 
+    // Decide passport validity text with fallbacks
+    const months = (visaRequirements as any)?.passport_validity_months as number | null | undefined
+    const passportValidity = countryPassportValidity
+      || (typeof months === 'number' && months > 0 ? `${months}+ months beyond stay` : 'Valid passport required')
+
     return {
-      passportValidity: 'Valid passport required',
+      passportValidity,
       allowedStay: allowedStayText,
       notes: description, // Always use fresh description from status types
       visaFee: visaFeeText,

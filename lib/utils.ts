@@ -1,48 +1,42 @@
-import { type ClassValue, clsx } from "clsx"
+import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatDate(date: Date | string | null): string {
-  if (!date) return 'No date set'
-  
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  
-  if (isNaN(dateObj.getTime())) {
-    return 'Invalid date'
-  }
-  
-  return dateObj.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
+// Date utilities used by components like `components/DocumentCard.tsx`
+export function isExpired(date: Date): boolean {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return false
+  const today = new Date()
+  const normalizedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const normalizedToday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate()
+  )
+  return normalizedDate < normalizedToday
+}
+
+export function getDaysUntilExpiry(date: Date): number {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 0
+  const today = new Date()
+  const normalizedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const normalizedToday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate()
+  )
+  const msPerDay = 24 * 60 * 60 * 1000
+  const diffMs = normalizedDate.getTime() - normalizedToday.getTime()
+  return Math.max(0, Math.ceil(diffMs / msPerDay))
+}
+
+export function formatDate(date: Date): string {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "—"
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
   })
 }
-
-export function isExpired(date: Date | string | null): boolean {
-  if (!date) return false
-  
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  
-  if (isNaN(dateObj.getTime())) {
-    return false
-  }
-  
-  return new Date() > dateObj
-}
-
-export function getDaysUntilExpiry(date: Date | string | null): number {
-  if (!date) return 0
-  
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  
-  if (isNaN(dateObj.getTime())) {
-    return 0
-  }
-  
-  const today = new Date()
-  const diffTime = dateObj.getTime() - today.getTime()
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-} 
